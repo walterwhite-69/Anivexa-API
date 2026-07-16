@@ -1,4 +1,12 @@
-export const _CACHE_ENABLED = false; //change it to true and setup your upstash so you can cache your data
+// Cache configuration is env-driven so no secrets live in source (see
+// .env.example). Set these in Vercel → Project → Environment Variables:
+//   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN  → shared cache
+//   CACHE_ENABLED=false                               → kill switch (default on)
+// Without Upstash creds the layer still runs (in-memory per warm instance;
+// disk cache under local node) — it just can't share across instances.
+const ENV = typeof process !== "undefined" && process.env ? process.env : {};
+
+export const _CACHE_ENABLED = String(ENV.CACHE_ENABLED ?? "true").toLowerCase() !== "false";
 
 const IS_LOCAL_NODE = (() => {
   try {
@@ -10,9 +18,10 @@ const IS_LOCAL_NODE = (() => {
   } catch { return false; }
 })();
 
-const UPSTASH_REDIS_REST_URL = "YOUR_UPSTASH_REDIS_REST_URL"; //get it from upstash.com 
-const UPSTASH_REDIS_REST_TOKEN = "YOUR_UPSTASH_REDIS_REST_TOKEN";
-const REDIS_ENABLED = Boolean(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+const UPSTASH_REDIS_REST_URL = ENV.UPSTASH_REDIS_REST_URL || "";
+const UPSTASH_REDIS_REST_TOKEN = ENV.UPSTASH_REDIS_REST_TOKEN || "";
+export const _REDIS_ENABLED = Boolean(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+const REDIS_ENABLED = _REDIS_ENABLED;
 
 function encodeEntry(entry) {
   return JSON.stringify(entry, (_, value) => value === Infinity ? "__Infinity__" : value);

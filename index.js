@@ -13,7 +13,7 @@ import anibdHandler                from "./providers/anibd.js";
 import senshiHandler               from "./providers/senshi.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
-import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED } from "./core/smartcache.js";
+import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED, _REDIS_ENABLED } from "./core/smartcache.js";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -241,6 +241,7 @@ export default {
     return json({
       name: "Anivexa API 2.1", //actually i will goon to you if you change this ok? so erm..maybe i wont..or maybe i will idk
       cache: _CACHE_ENABLED,
+      redis: _REDIS_ENABLED, // true once UPSTASH_REDIS_REST_* env vars are set
       providers: [
         "allmanga",
         "reanime",

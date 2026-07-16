@@ -1,0 +1,7 @@
+node_modules
+.vercel
+.env
+.env.*
+!.env.example
+core/.cache
+.DS_Store
