@@ -106,7 +106,7 @@ async function scrapeEpisodeWatch(epSlug, audio) {
       audio: tab.normalized,
       server: tab.server,
       embed: tab.embedUrl,
-      referer: tab.embedUrl,
+      referer: `${new URL(tab.embedUrl).origin}/`,
       priority: tabs.length - i,
       isActive: i === 0 && j === 0,
     }));
@@ -115,7 +115,7 @@ async function scrapeEpisodeWatch(epSlug, audio) {
       type: "embed",
       audio: tab.normalized,
       server: `${tab.server}-embed`,
-      referer: tab.embedUrl,
+      referer: `${new URL(tab.embedUrl).origin}/`,
       priority: 1,
       isActive: false,
     });

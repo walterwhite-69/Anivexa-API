@@ -90,7 +90,7 @@ async function scrapeEpisodeWatch(seriesSlug, epSlug, audio) {
         audio: aud,
         server: "AniNeko",
         priority: embeds.length - i,
-        referer: embed,
+        referer: `${new URL(embed).origin}/`,
         isActive: i === 0,
       };
     }));

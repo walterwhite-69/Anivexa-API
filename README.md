@@ -1,5 +1,9 @@
 <div align="center">
 
+
+<img src="docs/logo.svg" width="80" height="80"/>
+
+
 # Anivexa API 2.2
 
 **Anime streaming aggregator API — one endpoint, all your sources.**
@@ -24,7 +28,7 @@ It's the backbone powering **[Anivexa](https://github.com/walterwhite-69/Anivexa
 
 | Provider | Status | Notes |
 |---|---|---|
-| **AllManga** | ✅ Active | Large Library |
+| **MKissa** | ✅ Active | Large Library, Note: it may still return 403 error, their backend is one of the trickiest, it works fine but sometimes return "Need Captcha" Error. It might be slow since it will retry if it gets captcha error while requesting|
 | **AnimePahe** | ❌ Removed | Cloudflare JS Challenge — no reliable bypass |
 | **Reanime** | ✅ Active | Solid source for a wide range of titles |
 | **AniKoto** | ✅ Active | Good library, consistent |
@@ -33,7 +37,9 @@ It's the backbone powering **[Anivexa](https://github.com/walterwhite-69/Anivexa
 | **AniDB App** | ✅ Active | Language-aware, AniDB ID backed |
 | **AniZone** | ✅ Active | HLS + subtitles, sub-only; year-based re-scoring prevents wrong-season matches |
 | **2dhive** | ✅ Active | Uses MAL ID internally; AniList ID used everywhere else |
-| **Anidb** | ✅ Active | Uses Anilist ID internally; AniList ID used everywhere else |
+| **Anibd** | ✅ Active | Uses Anilist ID internally; AniList ID used everywhere else |
+| **Kickassanime** | ✅ Active | Fuzzy search, medium library |
+| **AnimeDunya** | ✅ Active | HLS + subtitles, sub-only, MAL ID backed |
 
 ---
 
@@ -48,7 +54,7 @@ Returns cross-platform ID mappings — MAL, TVDB, TMDB, Kitsu, AniDB, and more.
 GET /episodes/:anilistId
 GET /episodes/:provider[/:provider...]/:anilistId
 ```
-Returns episode lists in a single response with smart background refresh. Pass one or more provider names in the path to filter results — e.g. `/episodes/anizone/allmanga/16498` returns only those two. Omit providers to get all of them.
+Returns episode lists in a single response with smart background refresh. Pass one or more provider names in the path to filter results — e.g. `/episodes/anizone/mkissa/16498` returns only those two. Omit providers to get all of them.
 
 ```
 GET /watch/:provider/:anilistId/sub|dub/:provider-:ep
@@ -76,65 +82,7 @@ Runs on Node.js. No build step needed.
 
 ## Deploying on Vercel
 
-The API works on Vercel out of the box. However, **AniDB App** makes direct requests to `anidb.app`, and Vercel's serverless IPs tend to get blocked by it. To fix this, deploy the included proxy worker to Cloudflare Workers and set your proxy URL in `providers/anidbapp.js`.
-
-### 1. Deploy the proxy worker
-
-You need [Node.js](https://nodejs.org) and a free [Cloudflare account](https://cloudflare.com).
-
-```bash
-npm install -g wrangler
-wrangler login
-cd proxy
-wrangler deploy
-```
-
-This deploys a small worker to your Cloudflare account. Copy the URL it gives you (e.g. `https://anidb-proxy.yourname.workers.dev`).
-
-### 2. Set your proxy URL
-
-Open `providers/anidbapp.js` and replace the placeholder:
-
-```js
-const PROXY = "YOUR_PROXY_URL";
-```
-
-with your deployed worker URL:
-
-```js
-const PROXY = "https://anidb-proxy.yourname.workers.dev";
-```
-
-### 3. Deploy to Vercel
-
-```bash
-vercel --prod
-```
-
-The provider will try a direct request to `anidb.app` first. If that gets blocked, it automatically falls back through your proxy worker.
-
----
-
-## What changed recently
-
-### AniZone (new provider)
-- Sub-only HLS streams with subtitle and chapter support
-- Parses Alpine.js `x-data` blobs directly from the page — no API needed
-- Year-based re-scoring on `resolveSeries` prevents wrong-season matches when AniZone uses `(YEAR)` suffixes
-- Compact-query fallback (e.g. `Re:ZERO` → `ReZERO`) to catch all season variants in search
-
-### 2dhive (MAL ID fix)
-- 2dhive URLs are keyed by MAL ID, not AniList ID — fixed across all episode and stream endpoints
-- AniList ID is still used for all route IDs and response metadata; only the actual 2dhive network calls use the resolved MAL ID
-
-### AnimeGG (search fix)
-- Added compact-query fallback in `searchFn` (same strategy as AniZone) so titles like `"Re:Zero"` resolve to `"ReZero"` before hitting AnimeGG's search — catches all season slugs including `rezero-starting-life-in-another-world-season-4`
-
-### AllManga
-- Cloudflare Turnstile was added sitewide — the provider code is still present but the source is unreachable without a real browser solving the challenge. Marked unusable.
-
-### AnimePahe
-- Removed from the active provider list. Switched to Cloudflare JS Challenge; no reliable server-side bypass exists. Code retained but not wired into the episode aggregator.
+> ⚠️ **Not recommended.** Vercel runs on shared datacenter IPs that are widely blocked by anime streaming sites. Most providers will fail silently or return errors — the API will technically run but you'll get little to no data back. Use a self-hosted VPS or use railway, render etc etc. The proxy file is for anidb app not for streams!
 
 ---
 

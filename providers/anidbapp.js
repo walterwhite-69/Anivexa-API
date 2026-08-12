@@ -275,7 +275,7 @@ async function streamsForEmbed(embedUrl, audio, language) {
       language: language.code,
       server: "AniDB.app",
       embed: embedUrl,
-      referer: embedUrl,
+      referer: `${new URL(embedUrl).origin}/`,
       priority: 5,
       isActive: true,
     });

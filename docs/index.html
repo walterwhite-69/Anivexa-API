@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Anivexa API — Docs</title>
+  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 13 providers, exact-match identity resolution via AniList IDs."/>
   <link rel="icon" type="image/svg+xml" href="logo.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -11,6 +12,15 @@
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
+
+<div class="cursor-dot"  id="cursorDot"  aria-hidden="true"></div>
+<div class="cursor-ring" id="cursorRing" aria-hidden="true"></div>
+
+<div class="bg-orbs" aria-hidden="true">
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+  <div class="bg-orb bg-orb-3"></div>
+</div>
 
 <div class="overlay" id="overlay"></div>
 
@@ -22,9 +32,7 @@
   </button>
 </div>
 
-<div class="layout">
-
-  <nav class="sidebar" id="sidebar">
+<nav class="sidebar" id="sidebar">
     <div class="logo">
       <img src="logo.svg" alt="Anivexa"/>
       <span class="logo-text">Anivexa API</span>
@@ -46,7 +54,7 @@
       </div>
       <div class="nav-section">
         <div class="nav-label">Watch</div>
-        <a class="nav-item" href="#watch-allmanga"><span class="method">GET</span>AllManga</a>
+        <a class="nav-item" href="#watch-mkissa"><span class="method">GET</span>MKissa</a>
         <a class="nav-item" href="#watch-reanime"><span class="method">GET</span>Reanime</a>
         <a class="nav-item" href="#watch-anikoto"><span class="method">GET</span>Anikoto</a>
         <a class="nav-item" href="#watch-animegg"><span class="method">GET</span>AnimeGG</a>
@@ -57,24 +65,26 @@
         <a class="nav-item" href="#watch-anizone"><span class="method">GET</span>AniZone</a>
         <a class="nav-item" href="#watch-anibd"><span class="method">GET</span>AniBD</a>
         <a class="nav-item" href="#watch-senshi"><span class="method">GET</span>Senshi</a>
+        <a class="nav-item" href="#watch-kaa"><span class="method">GET</span>KickAssAnime</a>
+        <a class="nav-item" href="#watch-animedunya"><span class="method">GET</span>AnimeDunya</a>
       </div>
     </div>
   </nav>
 
+<div class="layout">
+
   <main class="main">
 
-    <!-- ── HERO ── -->
     <section class="section section-hero" id="overview">
       <img src="logo.svg" alt="Anivexa" class="hero-logo"/>
       <h1>Anivexa API</h1>
-      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 11 providers using a single AniList ID — no scraping, no guessing, exact-match identity resolution.</p>
+      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 13 providers using a single AniList ID — no scraping, no guessing, exact-match identity resolution.</p>
       <div class="callout">
         <span class="callout-icon">💡</span>
         <span>All endpoints are read-only. No authentication required. All responses are JSON with CORS headers included.</span>
       </div>
     </section>
 
-    <!-- ── BASE URL ── -->
     <section class="section" id="base-url">
       <h2>Base URL</h2>
       <p>All requests are made to the root of the server. When running locally:</p>
@@ -87,28 +97,28 @@
       <p>Replace with your deployed URL when in production. Every response includes <code>Access-Control-Allow-Origin: *</code>.</p>
     </section>
 
-    <!-- ── PROVIDERS REFERENCE ── -->
     <section class="section" id="providers-ref">
       <h2>Providers</h2>
-      <p>Eleven providers are available. Each uses exact-match identity resolution via AniList or MAL IDs — no blind fuzzy matching.</p>
+      <p>Thirteen providers are available. Each uses exact-match identity resolution via AniList or MAL IDs — no blind fuzzy matching.</p>
       <div class="provider-grid">
-        <div class="provider-card"><div class="provider-name">allmanga</div><div class="provider-meta">AllManga</div></div>
-        <div class="provider-card"><div class="provider-name">reanime</div><div class="provider-meta">Reanime</div></div>
-        <div class="provider-card"><div class="provider-name">anikoto</div><div class="provider-meta">Anikoto</div></div>
-        <div class="provider-card"><div class="provider-name">animegg</div><div class="provider-meta">AnimeGG</div></div>
-        <div class="provider-card"><div class="provider-name">anineko</div><div class="provider-meta">AniNeko</div></div>
-        <div class="provider-card"><div class="provider-name">anidbapp</div><div class="provider-meta">AniDBApp</div></div>
-        <div class="provider-card"><div class="provider-name">2dhive</div><div class="provider-meta">2DHive</div></div>
-        <div class="provider-card"><div class="provider-name">animenosub</div><div class="provider-meta">AnimeNoSub</div></div>
-        <div class="provider-card"><div class="provider-name">anizone</div><div class="provider-meta">AniZone</div></div>
-        <div class="provider-card"><div class="provider-name">anibd</div><div class="provider-meta">AniBD</div></div>
-        <div class="provider-card"><div class="provider-name">senshi</div><div class="provider-meta">Senshi</div></div>
+        <div class="provider-card" style="--i:0"><div class="provider-name">mkissa</div><div class="provider-meta">MKissa</div></div>
+        <div class="provider-card" style="--i:1"><div class="provider-name">reanime</div><div class="provider-meta">Reanime</div></div>
+        <div class="provider-card" style="--i:2"><div class="provider-name">anikoto</div><div class="provider-meta">Anikoto</div></div>
+        <div class="provider-card" style="--i:3"><div class="provider-name">animegg</div><div class="provider-meta">AnimeGG</div></div>
+        <div class="provider-card" style="--i:4"><div class="provider-name">anineko</div><div class="provider-meta">AniNeko</div></div>
+        <div class="provider-card" style="--i:5"><div class="provider-name">anidbapp</div><div class="provider-meta">AniDBApp</div></div>
+        <div class="provider-card" style="--i:6"><div class="provider-name">2dhive</div><div class="provider-meta">2DHive</div></div>
+        <div class="provider-card" style="--i:7"><div class="provider-name">animenosub</div><div class="provider-meta">AnimeNoSub</div></div>
+        <div class="provider-card" style="--i:8"><div class="provider-name">anizone</div><div class="provider-meta">AniZone</div></div>
+        <div class="provider-card" style="--i:9"><div class="provider-name">anibd</div><div class="provider-meta">AniBD</div></div>
+        <div class="provider-card" style="--i:10"><div class="provider-name">senshi</div><div class="provider-meta">Senshi</div></div>
+        <div class="provider-card" style="--i:11"><div class="provider-name">kaa</div><div class="provider-meta">KickAssAnime</div></div>
+        <div class="provider-card" style="--i:12"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
       </div>
     </section>
 
     <hr class="divider"/>
 
-    <!-- ── API INFO ── -->
     <section class="section" id="ep-info">
       <h2>API Info</h2>
       <div class="endpoint">
@@ -124,13 +134,12 @@
         <pre><code><span class="p">{</span>
   <span class="n">"name"</span><span class="p">:</span> <span class="s">"Anivexa API 2.2"</span><span class="p">,</span>
   <span class="n">"cache"</span><span class="p">:</span> <span class="b">false</span><span class="p">,</span>
-  <span class="n">"providers"</span><span class="p">: [</span><span class="s">"allmanga"</span><span class="p">,</span> <span class="s">"reanime"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">],</span>
+  <span class="n">"providers"</span><span class="p">: [</span><span class="s">"mkissa"</span><span class="p">,</span> <span class="s">"reanime"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">],</span>
   <span class="n">"routes"</span><span class="p">: [</span><span class="s">"/map/:anilistId"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">]</span>
 <span class="p">}</span></code></pre>
       </div>
     </section>
 
-    <!-- ── MAP ── -->
     <section class="section" id="ep-map">
       <h2>Map IDs</h2>
       <div class="endpoint">
@@ -157,7 +166,6 @@
       </div>
     </section>
 
-    <!-- ── EPISODES ALL ── -->
     <section class="section" id="ep-episodes">
       <h2>Episodes</h2>
       <div class="endpoint">
@@ -198,7 +206,6 @@
       </div>
     </section>
 
-    <!-- ── EPISODES FILTERED ── -->
     <section class="section" id="ep-episodes-filtered">
       <h2>Episodes (Filtered)</h2>
       <div class="endpoint">
@@ -227,17 +234,16 @@
 
     <hr class="divider"/>
 
-    <!-- ── WATCH ALLMANGA ── -->
-    <section class="section" id="watch-allmanga">
-      <h2>AllManga</h2>
+    <section class="section" id="watch-mkissa">
+      <h2>MKissa</h2>
       <div class="endpoint">
         <div class="endpoint-head">
           <span class="method-pill get">GET</span>
-          <span class="endpoint-path">/watch/allmanga/<span class="param">:id</span>/<span class="param">sub|dub</span>/allmanga-<span class="param">:ep</span></span>
-          <a class="try-btn" href="/watch/allmanga/16498/sub/allmanga-1" target="_blank">Try it ↗</a>
+          <span class="endpoint-path">/watch/mkissa/<span class="param">:id</span>/<span class="param">sub|dub</span>/mkissa-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/mkissa/16498/sub/mkissa-1" target="_blank">Try it ↗</a>
         </div>
         <div class="endpoint-body">
-          <p class="endpoint-desc">Returns stream sources for the given AllManga episode. The episode ID comes directly from the <code>id</code> field in the episodes list response.</p>
+          <p class="endpoint-desc">Returns stream sources for the given MKissa episode. The episode ID comes directly from the <code>id</code> field in the episodes list response.</p>
           <table class="params-table">
             <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
             <tbody>
@@ -266,7 +272,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH REANIME ── -->
     <section class="section" id="watch-reanime">
       <h2>Reanime</h2>
       <div class="endpoint">
@@ -299,7 +304,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANIKOTO ── -->
     <section class="section" id="watch-anikoto">
       <h2>Anikoto</h2>
       <div class="endpoint">
@@ -322,7 +326,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANIMEGG ── -->
     <section class="section" id="watch-animegg">
       <h2>AnimeGG</h2>
       <div class="endpoint">
@@ -345,7 +348,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANINEKO ── -->
     <section class="section" id="watch-anineko">
       <h2>AniNeko</h2>
       <div class="endpoint">
@@ -368,7 +370,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANIDBAPP ── -->
     <section class="section" id="watch-anidbapp">
       <h2>AniDBApp</h2>
       <div class="endpoint">
@@ -391,7 +392,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH 2DHIVE ── -->
     <section class="section" id="watch-2dhive">
       <h2>2DHive</h2>
       <div class="endpoint">
@@ -434,7 +434,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANIMENOSUB ── -->
     <section class="section" id="watch-animenosub">
       <h2>AnimeNoSub</h2>
       <div class="endpoint">
@@ -457,7 +456,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANIZONE ── -->
     <section class="section" id="watch-anizone">
       <h2>AniZone</h2>
       <div class="endpoint">
@@ -480,7 +478,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH ANIBD ── -->
     <section class="section" id="watch-anibd">
       <h2>AniBD</h2>
       <div class="endpoint">
@@ -503,7 +500,6 @@
       </div>
     </section>
 
-    <!-- ── WATCH SENSHI ── -->
     <section class="section" id="watch-senshi">
       <h2>Senshi</h2>
       <div class="endpoint">
@@ -529,6 +525,8 @@
   <span class="n">"malId"</span><span class="p">:</span>      <span class="b">16498</span><span class="p">,</span>
   <span class="n">"episode"</span><span class="p">:</span>    <span class="b">1</span><span class="p">,</span>
   <span class="n">"audio"</span><span class="p">:</span>      <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"intro"</span><span class="p">:</span>      <span class="p">{</span> <span class="n">"start"</span><span class="p">:</span> <span class="b">123</span><span class="p">,</span> <span class="n">"end"</span><span class="p">:</span> <span class="b">215</span> <span class="p">},</span>
+  <span class="n">"outro"</span><span class="p">:</span>      <span class="p">{</span> <span class="n">"start"</span><span class="p">:</span> <span class="b">1435</span><span class="p">,</span> <span class="n">"end"</span><span class="p">:</span> <span class="b">1525</span> <span class="p">},</span>
   <span class="n">"streams"</span><span class="p">: [</span>
     <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://ninstream.com/.../playlist.m3u8"</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">,</span>   <span class="n">"server"</span><span class="p">:</span> <span class="s">"Senshi"</span><span class="p">,</span>   <span class="n">"priority"</span><span class="p">:</span> <span class="b">5</span><span class="p">,</span> <span class="n">"isActive"</span><span class="p">:</span> <span class="b">true</span>  <span class="p">},</span>
     <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://streamnin.xyz/d/..."</span><span class="p">,</span>              <span class="n">"type"</span><span class="p">:</span> <span class="s">"embed"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"StreamNin"</span><span class="p">,</span> <span class="n">"priority"</span><span class="p">:</span> <span class="b">3</span><span class="p">,</span> <span class="n">"isActive"</span><span class="p">:</span> <span class="b">false</span> <span class="p">},</span>
@@ -541,46 +539,247 @@
       </div>
     </section>
 
+    <section class="section" id="watch-kaa">
+      <h2>KickAssAnime</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/kaa/<span class="param">:id</span>/<span class="param">sub|dub</span>/kaa-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/kaa/21/sub/kaa-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Returns stream sources from KickAssAnime for the specified episode. Streams are served via CatStream (HLS) and require the included <code>Referer</code> header for playback.</p>
+          <table class="params-table">
+            <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="param-name">:id</td><td class="param-type">integer</td><td class="param-desc">AniList media ID</td></tr>
+              <tr><td class="param-name">sub|dub</td><td class="param-type">string</td><td class="param-desc">Audio track preference</td></tr>
+              <tr><td class="param-name">:ep</td><td class="param-type">integer</td><td class="param-desc">Episode number</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-label">Response</div>
+        <pre><code><span class="p">{</span>
+  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">21</span><span class="p">,</span>
+  <span class="n">"episode"</span><span class="p">:</span>   <span class="b">1</span><span class="p">,</span>
+  <span class="n">"audio"</span><span class="p">:</span>     <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"streams"</span><span class="p">: [</span>
+    <span class="p">{</span>
+      <span class="n">"url"</span><span class="p">:</span>      <span class="s">"https://hls.krussdomi.com/manifest/.../master.m3u8"</span><span class="p">,</span>
+      <span class="n">"type"</span><span class="p">:</span>     <span class="s">"hls"</span><span class="p">,</span>
+      <span class="n">"server"</span><span class="p">:</span>   <span class="s">"CatStream"</span><span class="p">,</span>
+      <span class="n">"headers"</span><span class="p">: {</span> <span class="n">"Referer"</span><span class="p">:</span> <span class="s">"https://krussdomi.com/"</span> <span class="p">},</span>
+      <span class="n">"priority"</span><span class="p">:</span> <span class="b">1</span><span class="p">,</span>
+      <span class="n">"isActive"</span><span class="p">:</span> <span class="b">true</span>
+    <span class="p">}</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+      </div>
+    </section>
+
+    <section class="section" id="watch-animedunya">
+      <h2>AnimeDunya</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/animedunya/<span class="param">:id</span>/<span class="param">sub|dub</span>/animedunya-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/animedunya/16498/sub/animedunya-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Returns stream sources from AnimeDunya for the specified episode. Streams are served as direct HLS playlists with multiple subtitle tracks included.</p>
+          <table class="params-table">
+            <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="param-name">:id</td><td class="param-type">integer</td><td class="param-desc">AniList media ID</td></tr>
+              <tr><td class="param-name">sub|dub</td><td class="param-type">string</td><td class="param-desc">Audio track preference</td></tr>
+              <tr><td class="param-name">:ep</td><td class="param-type">integer</td><td class="param-desc">Episode number</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-label">Response</div>
+        <pre><code><span class="p">{</span>
+  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">16498</span><span class="p">,</span>
+  <span class="n">"malId"</span><span class="p">:</span>     <span class="b">16498</span><span class="p">,</span>
+  <span class="n">"episode"</span><span class="p">:</span>   <span class="b">1</span><span class="p">,</span>
+  <span class="n">"audio"</span><span class="p">:</span>     <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"streams"</span><span class="p">: [</span>
+    <span class="p">{</span>
+      <span class="n">"url"</span><span class="p">:</span>       <span class="s">"https://fs2c.anime-dunya.com/files/.../master.m3u8"</span><span class="p">,</span>
+      <span class="n">"type"</span><span class="p">:</span>      <span class="s">"hls"</span><span class="p">,</span>
+      <span class="n">"server"</span><span class="p">:</span>    <span class="s">"AnimeDunya"</span><span class="p">,</span>
+      <span class="n">"referer"</span><span class="p">:</span>   <span class="s">"https://anime-dunya.com/"</span><span class="p">,</span>
+      <span class="n">"subtitles"</span><span class="p">: [</span>
+        <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://fs2c.anime-dunya.com/.../en.vtt"</span><span class="p">,</span> <span class="n">"label"</span><span class="p">:</span> <span class="s">"EN"</span><span class="p">,</span> <span class="n">"srclang"</span><span class="p">:</span> <span class="s">"en"</span><span class="p">,</span> <span class="n">"default"</span><span class="p">:</span> <span class="b">true</span> <span class="p">}</span>
+      <span class="p">],</span>
+      <span class="n">"priority"</span><span class="p">:</span>  <span class="b">5</span><span class="p">,</span>
+      <span class="n">"isActive"</span><span class="p">:</span>  <span class="b">true</span>
+    <span class="p">}</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+      </div>
+    </section>
+
   </main>
 </div>
 
 <script>
-  const sidebar  = document.getElementById('sidebar');
-  const overlay  = document.getElementById('overlay');
-  const menuBtn  = document.getElementById('menuBtn');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('overlay');
+  const menuBtn = document.getElementById('menuBtn');
 
-  function openSidebar() {
+  const openSidebar = () => {
     sidebar.classList.add('open');
     overlay.classList.add('open');
-  }
-  function closeSidebar() {
+    menuBtn.classList.add('active');
+    document.body.style.overflow = 'hidden';
+  };
+
+  const closeSidebar = () => {
     sidebar.classList.remove('open');
     overlay.classList.remove('open');
-  }
+    menuBtn.classList.remove('active');
+    document.body.style.overflow = '';
+  };
 
   menuBtn.addEventListener('click', () =>
     sidebar.classList.contains('open') ? closeSidebar() : openSidebar()
   );
   overlay.addEventListener('click', closeSidebar);
-
-  sidebar.querySelectorAll('.nav-item').forEach(link => {
-    link.addEventListener('click', () => {
-      if (window.innerWidth <= 768) closeSidebar();
-    });
-  });
+  sidebar.querySelectorAll('.nav-item').forEach(l =>
+    l.addEventListener('click', () => { if (window.innerWidth <= 768) closeSidebar(); })
+  );
 
   const navItems = sidebar.querySelectorAll('.nav-item[href^="#"]');
-  const observer = new IntersectionObserver(entries => {
+  const navObs = new IntersectionObserver(entries => {
     entries.forEach(e => {
       if (e.isIntersecting) {
         navItems.forEach(n => n.classList.remove('active'));
-        const active = sidebar.querySelector(`.nav-item[href="#${e.target.id}"]`);
-        if (active) active.classList.add('active');
+        const a = sidebar.querySelector(`.nav-item[href="#${e.target.id}"]`);
+        if (a) a.classList.add('active');
       }
     });
   }, { rootMargin: '-20% 0px -70% 0px' });
+  document.querySelectorAll('.section[id]').forEach(s => navObs.observe(s));
 
-  document.querySelectorAll('.section[id]').forEach(s => observer.observe(s));
+  const revealObs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        revealObs.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.07, rootMargin: '0px 0px -40px 0px' });
+  document.querySelectorAll('.section').forEach(s => revealObs.observe(s));
+
+  const tiltables = document.querySelectorAll('.provider-card, .endpoint');
+  tiltables.forEach(el => {
+    let raf = null;
+    el.addEventListener('mousemove', e => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width  - 0.5;
+        const y = (e.clientY - r.top)  / r.height - 0.5;
+        const maxDeg = el.classList.contains('provider-card') ? 10 : 5;
+        el.style.setProperty('--rx', `${(-y * maxDeg).toFixed(2)}deg`);
+        el.style.setProperty('--ry', `${( x * maxDeg).toFixed(2)}deg`);
+        raf = null;
+      });
+    }, { passive: true });
+    el.addEventListener('mouseleave', () => {
+      if (raf) { cancelAnimationFrame(raf); raf = null; }
+      el.style.setProperty('--rx', '0deg');
+      el.style.setProperty('--ry', '0deg');
+    }, { passive: true });
+  });
+
+  (function () {
+    const dot  = document.getElementById('cursorDot');
+    const ring = document.getElementById('cursorRing');
+    if (!dot || !ring) return;
+
+    let mx = -200, my = -200;
+    let rx = -200, ry = -200;
+    let visible = false;
+
+    const LERP = 0.22;
+    const INTERACTIVES = 'a, button, .provider-card, .nav-item, .try-btn, .copy-btn, label, [role="button"]';
+
+    function tick() {
+      rx += (mx - rx) * LERP;
+      ry += (my - ry) * LERP;
+      dot.style.transform  = `translate(${mx}px,${my}px)`;
+      ring.style.transform = `translate(${Math.round(rx * 10) / 10}px,${Math.round(ry * 10) / 10}px)`;
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    document.addEventListener('mousemove', e => {
+      mx = e.clientX; my = e.clientY;
+      if (!visible) {
+        visible = true;
+        dot.classList.remove('is-hidden');
+        ring.classList.remove('is-hidden');
+        rx = mx; ry = my;
+      }
+    }, { passive: true });
+
+    document.addEventListener('mouseleave', () => {
+      dot.classList.add('is-hidden');
+      ring.classList.add('is-hidden');
+      visible = false;
+    }, { passive: true });
+
+    document.addEventListener('mouseenter', () => {
+      dot.classList.remove('is-hidden');
+      ring.classList.remove('is-hidden');
+      visible = true;
+    }, { passive: true });
+
+    document.addEventListener('mousedown', () => {
+      ring.classList.add('is-clicking');
+      ring.classList.remove('is-hovering');
+    }, { passive: true });
+
+    document.addEventListener('mouseup', () => {
+      ring.classList.remove('is-clicking');
+    }, { passive: true });
+
+    document.addEventListener('mouseover', e => {
+      if (e.target.closest(INTERACTIVES)) {
+        dot.classList.add('is-hovering');
+        ring.classList.add('is-hovering');
+      }
+    }, { passive: true });
+
+    document.addEventListener('mouseout', e => {
+      if (e.target.closest(INTERACTIVES)) {
+        dot.classList.remove('is-hovering');
+        ring.classList.remove('is-hovering');
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchstart', () => {
+      dot.style.display  = 'none';
+      ring.style.display = 'none';
+      document.body.style.cursor = '';
+    }, { once: true, passive: true });
+  })();
+
+  document.querySelectorAll('pre').forEach(pre => {
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', () => {
+      const text = pre.innerText.replace(/\nCopy$/, '').replace(/\nCopied!$/, '').trim();
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+      }).catch(() => {});
+    });
+    pre.appendChild(btn);
+  });
 </script>
 
 </body>

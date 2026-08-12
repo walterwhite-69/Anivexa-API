@@ -27,6 +27,60 @@
       color: var(--text);
       font-family: 'Inter', system-ui, sans-serif;
       -webkit-font-smoothing: antialiased;
+      cursor: none;
+    }
+
+    a, button, [role="button"] { cursor: none; }
+
+    .cursor-dot,
+    .cursor-ring {
+      position: fixed;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 99999;
+      will-change: transform;
+      border-radius: 50%;
+    }
+
+    .cursor-dot {
+      width: 6px; height: 6px;
+      background: #818cf8;
+      margin: -3px 0 0 -3px;
+      box-shadow: 0 0 10px rgba(129,140,248,.8);
+      transition: opacity .2s;
+    }
+
+    .cursor-ring {
+      width: 36px; height: 36px;
+      border: 1.5px solid rgba(129,140,248,.45);
+      margin: -18px 0 0 -18px;
+      transition: width .25s cubic-bezier(.22,1,.36,1),
+                  height .25s cubic-bezier(.22,1,.36,1),
+                  margin .25s cubic-bezier(.22,1,.36,1),
+                  border-color .25s, background .25s, opacity .2s;
+    }
+
+    .cursor-ring.is-hovering {
+      width: 52px; height: 52px;
+      margin: -26px 0 0 -26px;
+      border-color: rgba(129,140,248,.7);
+      background: rgba(129,140,248,.06);
+    }
+
+    .cursor-dot.is-hovering  { opacity: 0; }
+    .cursor-dot.is-hidden,
+    .cursor-ring.is-hidden   { opacity: 0; }
+
+    .cursor-ring.is-clicking {
+      width: 28px; height: 28px;
+      margin: -14px 0 0 -14px;
+      border-color: rgba(129,140,248,.9);
+      background: rgba(129,140,248,.12);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cursor-dot, .cursor-ring { display: none; }
+      body { cursor: auto; }
     }
 
     body {
@@ -202,6 +256,9 @@
 </head>
 <body>
 
+<div class="cursor-dot"  id="cursorDot"  aria-hidden="true"></div>
+<div class="cursor-ring" id="cursorRing" aria-hidden="true"></div>
+
 <div class="glow"></div>
 
 <div class="card">
@@ -211,7 +268,7 @@
   <p class="tagline">Streaming Aggregator API</p>
 
   <p class="desc">
-    A unified API for anime stream sources. Resolve episodes and watch links across 11 providers using a single AniList ID — exact-match identity, no guessing.
+    A unified API for anime stream sources. Resolve episodes and watch links across 13 providers using a single AniList ID — exact-match identity, no guessing.
   </p>
 
   <div class="actions">
@@ -242,7 +299,7 @@
   </div>
 
   <div class="badge-row">
-    <span class="badge">11 Providers</span>
+    <span class="badge">13 Providers</span>
     <span class="badge">AniList ID</span>
     <span class="badge">No Auth</span>
     <span class="badge">CORS Enabled</span>
@@ -251,5 +308,38 @@
 
 <footer>© 2026 Anivexa. All rights reserved.</footer>
 
+<script>
+  (function () {
+    const dot  = document.getElementById('cursorDot');
+    const ring = document.getElementById('cursorRing');
+    if (!dot || !ring) return;
+
+    let mx = -200, my = -200, rx = -200, ry = -200, visible = false;
+    const LERP = 0.22;
+    const INTERACTIVES = 'a, button, [role="button"]';
+
+    (function tick() {
+      rx += (mx - rx) * LERP;
+      ry += (my - ry) * LERP;
+      dot.style.transform  = `translate(${mx}px,${my}px)`;
+      ring.style.transform = `translate(${Math.round(rx * 10) / 10}px,${Math.round(ry * 10) / 10}px)`;
+      requestAnimationFrame(tick);
+    })();
+
+    document.addEventListener('mousemove', e => {
+      mx = e.clientX; my = e.clientY;
+      if (!visible) { visible = true; rx = mx; ry = my; dot.classList.remove('is-hidden'); ring.classList.remove('is-hidden'); }
+    }, { passive: true });
+
+    document.addEventListener('mouseleave', () => { dot.classList.add('is-hidden');    ring.classList.add('is-hidden');    visible = false; }, { passive: true });
+    document.addEventListener('mouseenter', () => { dot.classList.remove('is-hidden'); ring.classList.remove('is-hidden'); visible = true;  }, { passive: true });
+    document.addEventListener('mousedown',  () => { ring.classList.add('is-clicking');    ring.classList.remove('is-hovering'); }, { passive: true });
+    document.addEventListener('mouseup',    () => { ring.classList.remove('is-clicking'); }, { passive: true });
+    document.addEventListener('mouseover',  e => { if (e.target.closest(INTERACTIVES)) { dot.classList.add('is-hovering');    ring.classList.add('is-hovering');    } }, { passive: true });
+    document.addEventListener('mouseout',   e => { if (e.target.closest(INTERACTIVES)) { dot.classList.remove('is-hovering'); ring.classList.remove('is-hovering'); } }, { passive: true });
+
+    window.addEventListener('touchstart', () => { dot.style.display = 'none'; ring.style.display = 'none'; document.body.style.cursor = ''; }, { once: true, passive: true });
+  })();
+</script>
 </body>
 </html>

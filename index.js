@@ -1,6 +1,6 @@
 import { getMedia }                from "./core/anilist.js";
 import { mapAnimeIds }             from "./core/mapper.js";
-import mangaHandler                from "./providers/allmanga.js";
+import mkissaHandler               from "./providers/mkissa.js";
 import reanimeHandler              from "./providers/reanime.js";
 import anikotoHandler              from "./providers/anikoto.js";
 import animeggHandler              from "./providers/animegg.js";
@@ -11,6 +11,8 @@ import animenosubHandler           from "./providers/animenosub.js";
 import anizoneHandler              from "./providers/anizone.js";
 import anibdHandler                from "./providers/anibd.js";
 import senshiHandler               from "./providers/senshi.js";
+import kaaHandler                  from "./providers/kickassanime.js";
+import animedunyaHandler           from "./providers/animedunya.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
 import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED, _REDIS_ENABLED } from "./core/smartcache.js";
@@ -127,12 +129,12 @@ export default {
       }
     }
 
-    m = path.match(/^\/watch\/allmanga\/(\d+)\/(sub|dub)\/allmanga-(\d+)\/?$/);
+    m = path.match(/^\/watch\/mkissa\/(\d+)\/(sub|dub)\/mkissa-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
       return cachedWatch(
-        `watch:manga:${id}:${audio}:${ep}`,
-        () => mangaHandler.fetch(request)
+        `watch:mkissa:${id}:${audio}:${ep}`,
+        () => mkissaHandler.fetch(request)
       );
     }
 
@@ -232,6 +234,24 @@ export default {
       );
     }
 
+    m = path.match(/^\/watch\/kaa\/(\d+)\/(sub|dub)\/kaa-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:kaa:${id}:${audio}:${ep}`,
+        () => kaaHandler.fetch(request)
+      );
+    }
+
+    m = path.match(/^\/watch\/animedunya\/(\d+)\/(sub|dub)\/animedunya-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:animedunya:${id}:${audio}:${ep}`,
+        () => animedunyaHandler.fetch(request)
+      );
+    }
+
     m = path.match(/^\/stream\/2dhive\/(\d+)\/(sub|dub)\/(\d+)\/?$/);
     if (m) return dhiveHandler.fetch(request);
 
@@ -239,11 +259,11 @@ export default {
     if (m) return dhiveHandler.fetch(request);
 
     return json({
-      name: "Anivexa API 2.1", //actually i will goon to you if you change this ok? so erm..maybe i wont..or maybe i will idk
+      name: "Anivexa API 2.1",
       cache: _CACHE_ENABLED,
       redis: _REDIS_ENABLED, // true once UPSTASH_REDIS_REST_* env vars are set
       providers: [
-        "allmanga",
+        "mkissa",
         "reanime",
         "anikoto",
         "animegg",
@@ -254,12 +274,14 @@ export default {
         "anizone",
         "anibd",
         "senshi",
+        "kaa",
+        "animedunya",
       ],
       routes: [
         "/map/:anilistId",
         "/episodes/:anilistId",
         "/episodes/:provider[/:provider...]/:anilistId?map=true|false",
-        "/watch/allmanga/:id/sub|dub/allmanga-:ep",
+        "/watch/mkissa/:id/sub|dub/mkissa-:ep",
         "/watch/reanime/:id/sub|dub/reanime-:ep",
         "/stream/reanime/:id/sub|dub/:ep",
         "/watch/anikoto/:id/sub|dub/anikoto-:ep",
@@ -273,6 +295,8 @@ export default {
         "/watch/anizone/:id/sub|dub/anizone-:ep",
         "/watch/anibd/:id/sub|dub/anibd-:ep",
         "/watch/senshi/:id/sub|dub/senshi-:ep",
+        "/watch/kaa/:id/sub|dub/kaa-:ep",
+        "/watch/animedunya/:id/sub|dub/animedunya-:ep",
       ],
     });
   },

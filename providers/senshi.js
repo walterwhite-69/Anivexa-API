@@ -1,4 +1,4 @@
-import { json }                                           from "../core/new-provider-utils.js";
+import { json, episodeMeta }                                  from "../core/new-provider-utils.js";
 import { getMedia }                                        from "../core/anilist.js";
 import { get as cacheGet, set as cacheSet, isFresh,
          SHOW_IDENTITY_TTL }                               from "../core/smartcache.js";
@@ -56,18 +56,43 @@ export async function getEpisodes(anilistId, ctx = {}) {
 
   for (const item of items) {
     const num  = item.ep_id;
-    const base = {
-      number: num,
-      title:  item.ep_title || `Episode ${num}`,
-      filler: item.ep_filler ?? false,
-      recap:  item.ep_recap  ?? false,
-      intro:  { start: item.intro_start ?? 0, end: item.intro_end  ?? 0 },
-      outro:  { start: item.outro_start ?? 0, end: item.outro_end  ?? 0 },
-    };
+    const meta = episodeMeta(num, ctx);
+    const title = item.ep_title || meta.title || `Episode ${num}`;
+    const duration = meta.duration;
+    const filler = item.ep_filler || meta.filler || false;
+    const recap = item.ep_recap || false;
+    const description = meta.description;
+    const image = meta.image;
+    const airDate = meta.airDate;
 
-    sub.push({ ...base, id: `watch/senshi/${anilistId}/sub/senshi-${num}`, audio: "sub" });
+    sub.push({
+      id: `watch/senshi/${anilistId}/sub/senshi-${num}`,
+      number: num,
+      title,
+      duration,
+      audio: "sub",
+      filler,
+      recap,
+      uncensored: false,
+      description,
+      image,
+      airDate
+    });
+
     if (hasDub) {
-      dub.push({ ...base, id: `watch/senshi/${anilistId}/dub/senshi-${num}`, audio: "dub" });
+      dub.push({
+        id: `watch/senshi/${anilistId}/dub/senshi-${num}`,
+        number: num,
+        title,
+        duration,
+        audio: "dub",
+        filler,
+        recap,
+        uncensored: false,
+        description,
+        image,
+        airDate
+      });
     }
   }
 
@@ -98,6 +123,18 @@ async function handleWatch(anilistId, audio, epNum) {
   if (!source) {
     return json({ error: `Senshi: no ${audio} source for episode ${epNum}` }, 404);
   }
+
+  const list = await fetchEpisodeList(malId).catch(() => []);
+  const epItem = list.find(item => Number(item.ep_id) === Number(epNum));
+
+  const intro = {
+    start: epItem?.intro_start ?? 0,
+    end: epItem?.intro_end ?? 0,
+  };
+  const outro = {
+    start: epItem?.outro_start ?? 0,
+    end: epItem?.outro_end ?? 0,
+  };
 
   const streams   = [];
   const downloads = [];
@@ -144,6 +181,8 @@ async function handleWatch(anilistId, audio, epNum) {
     malId,
     episode:   Number(epNum),
     audio,
+    intro,
+    outro,
     streams,
     downloads,
     headers:   H,
