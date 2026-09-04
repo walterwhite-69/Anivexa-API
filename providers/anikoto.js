@@ -6,10 +6,6 @@ const ANIZIP = "https://api.ani.zip/mappings";
 const SPOOF_REF = "https://hianimes.re/";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-// Simple internal proxy list (used as fallback when direct fetch fails). Add/remove entries as needed.
-// NOTE: This implements a best-effort attempt to use HTTP(S) proxies by requesting the full target URL
-// as the path on the proxy (proxy + '/' + target). Not all proxies support this; for reliable proxying
-// prefer using an http(s)-proxy agent at the runtime level (Node) or an upstream proxy service.
 const PROXIES = [
   "http://31.76.102.15:8080",
   "http://84.247.171.137:3128",
@@ -25,12 +21,17 @@ const PROXIES = [
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY = 500; // ms
+const FETCH_TIMEOUT_MS = 8000;
 
 const LANG_MAP = {
   en: "en", english: "en", ja: "ja", japanese: "ja",
   fr: "fr", french: "fr", de: "de", german: "de",
   es: "es", spanish: "es", pt: "pt", portuguese: "pt"
 };
+
+const MODIFIERS = [
+  "ova", "movie", "special", "specials", "tales", "journal", "part", "season", "kanwa", "spin-off", "theatre"
+];
 
 function normalize(s) {
   return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -40,99 +41,129 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Build a proxied URL by appending the encoded target URL to the proxy address.
-// This is a best-effort approach and may not work with all proxies.
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" }
+  });
+}
+
 function buildProxiedUrl(proxy, target) {
-  // If proxy already looks like a forwarding service (contains a '?url='), prefer that usage
   if (proxy.includes('?url=')) {
     return proxy.replace(/url=.*$/, `url=${encodeURIComponent(target)}`);
   }
-  // Ensure no trailing slash on proxy
   const p = proxy.replace(/\/$/, '');
   return `${p}/${target}`;
 }
 
 async function tryFetchWithRetries(url, init = {}, opts = {}) {
-  // opts: { maxRetries, proxies }
   const maxRetries = opts.maxRetries ?? MAX_RETRIES;
   const proxies = opts.proxies ?? PROXIES;
-
   let lastErr = null;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // First try direct fetch
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     try {
-      const res = await fetch(url, init);
+      console.log(`[Anikoto] [Fetch Direct] Attempt ${attempt + 1}/${maxRetries} -> ${url}`);
+      const res = await fetch(url, {
+        ...init,
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
       if (!res.ok) {
         const raw = await res.text().catch(() => null);
+        console.warn(`[Anikoto] [Fetch Direct] HTTP ${res.status} returned for ${url}`);
         const e = new Error(`HTTP ${res.status} fetching ${url}`);
         e.rawBody = raw;
         throw e;
       }
       return res;
     } catch (err) {
+      clearTimeout(timeout);
       lastErr = err;
-      // exponential backoff before trying proxies or next attempt
-      const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
-      await sleep(delay);
+      console.warn(`[Anikoto] [Fetch Direct Error] Attempt ${attempt + 1} failed for ${url}: ${err.message}`);
 
-      // Try proxies in sequence for this attempt
+      console.log(`[Anikoto] [Fetch Proxy] Attempting proxy sequence for ${url}...`);
       for (const proxy of proxies) {
-        // only attempt HTTP/HTTPS proxies (skip socks entries)
         if (!proxy.startsWith('http://') && !proxy.startsWith('https://')) continue;
+        
+        const proxyController = new AbortController();
+        const proxyTimeout = setTimeout(() => proxyController.abort(), FETCH_TIMEOUT_MS);
+
         try {
           const proxiedUrl = buildProxiedUrl(proxy, url);
-          // When passing through a proxy this way, we should set Host header to original host
-          const clonedInit = { ...init, headers: { ...(init.headers || {}), Host: new URL(url).host, 'User-Agent': UA } };
+          console.log(`[Anikoto] [Fetch Proxy] Trying via proxy: ${proxy} -> ${proxiedUrl}`);
+
+          const clonedInit = {
+            ...init,
+            signal: proxyController.signal,
+            headers: {
+              ...(init.headers || {}),
+              Host: new URL(url).host,
+              'User-Agent': UA
+            }
+          };
+
           const pres = await fetch(proxiedUrl, clonedInit);
+          clearTimeout(proxyTimeout);
+
           if (!pres.ok) {
             const raw = await pres.text().catch(() => null);
+            console.warn(`[Anikoto] [Fetch Proxy Warning] Proxy HTTP ${pres.status} via ${proxy}`);
             const e = new Error(`Proxy HTTP ${pres.status} via ${proxy} fetching ${url}`);
             e.rawBody = raw;
             throw e;
           }
+
+          console.log(`[Anikoto] [Fetch Proxy Success] Successfully fetched via proxy: ${proxy}`);
           return pres;
         } catch (pErr) {
-          // record and try next proxy
+          clearTimeout(proxyTimeout);
           lastErr = pErr;
-          // small pause between proxy tries
+          console.warn(`[Anikoto] [Fetch Proxy Error] Proxy ${proxy} failed: ${pErr.message}`);
           await sleep(150);
           continue;
         }
       }
 
-      // If this was the last attempt, break and throw
       if (attempt === maxRetries - 1) break;
+
+      const delay = RETRY_BASE_DELAY * Math.pow(2, attempt) + Math.random() * 100;
+      console.log(`[Anikoto] [Fetch Retry] All options failed for attempt ${attempt + 1}. Waiting ${Math.round(delay)}ms...`);
+      await sleep(delay);
     }
   }
 
-  // all attempts failed
+  console.error(`[Anikoto] [Fetch Fatal] All ${maxRetries} direct & proxy attempts failed for ${url}`);
   const err = new Error(`Failed to fetch ${url} after ${maxRetries} attempts`);
   err.cause = lastErr;
   throw err;
 }
 
 async function httpGet(url, headers = {}) {
-  const res = await tryFetchWithRetries(url, { headers: { "User-Agent": UA, Accept: "text/html,*/*", ...headers } });
+  const res = await tryFetchWithRetries(url, {
+    headers: { "User-Agent": UA, Accept: "text/html,*/*", ...headers }
+  });
   return res.text();
 }
 
 async function getJSON(url, headers = {}) {
-  const res = await tryFetchWithRetries(url, { headers: { "User-Agent": UA, Accept: "application/json,*/*", ...headers } });
-  // attempt to parse JSON; if parsing fails include body for debugging
+  const res = await tryFetchWithRetries(url, {
+    headers: { "User-Agent": UA, Accept: "application/json,*/*", ...headers }
+  });
   try {
     return await res.json();
   } catch (e) {
     const raw = await res.text().catch(() => null);
+    console.error(`[Anikoto] [JSON Error] Failed to parse JSON response from ${url}. Raw snippet:`, raw?.slice(0, 200));
     const _e = new Error(`Invalid JSON from ${url}`);
     _e.rawBody = raw;
     throw _e;
   }
 }
-
-const MODIFIERS = [
-  "ova", "movie", "special", "specials", "tales", "journal", "part", "season", "kanwa", "spin-off", "theatre"
-];
 
 function scoreCandidate(cand, primaryEn, primaryRom, synonyms) {
   let score = 0;
@@ -148,7 +179,7 @@ function scoreCandidate(cand, primaryEn, primaryRom, synonyms) {
   if (normRom && candJpNorm === normRom) score += 800;
 
   const targetText = `${primaryEn || ""} ${primaryRom || ""} ${(synonyms || []).join(" ")}`.toLowerCase();
-  
+
   for (const mod of MODIFIERS) {
     const candHasMod = candNameNorm.includes(mod) || candSlugNorm.includes(mod);
     const targetHasMod = targetText.includes(mod);
@@ -175,10 +206,11 @@ function scoreCandidate(cand, primaryEn, primaryRom, synonyms) {
 }
 
 async function searchAnikoto(query) {
+  console.log(`[Anikoto] [Search] Searching for keyword: "${query}"`);
   const searchHtml = await httpGet(`${ANIKOTO}/filter?keyword=${encodeURIComponent(query)}`, { Referer: `${ANIKOTO}/` });
   const candidates = [];
-  
-  const re = /<a\s+class="name d-title"\s+href="https:\/\/anikototv\.to\/watch\/([^"/]+)(?:\/ep-\d+)?"[^>]*data-jp="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+
+  const re = /<a\s+[^>]*href="https:\/\/anikototv\.to\/watch\/([^"/]+)(?:\/ep-\d+)?"[^>]*data-jp="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
   let m;
   while ((m = re.exec(searchHtml)) !== null) {
     const slug = m[1];
@@ -188,18 +220,22 @@ async function searchAnikoto(query) {
   }
 
   if (!candidates.length) {
-    const reFallback = /<a\s+href="https:\/\/anikototv\.to\/watch\/([^"/]+)(?:\/ep-\d+)?"[^>]*>([\s\S]*?)<\/a>/g;
+    console.log(`[Anikoto] [Search] No main candidates matched for "${query}". Trying fallback regex...`);
+    const reFallback = /<a\s+[^>]*href="https:\/\/anikototv\.to\/watch\/([^"/]+)(?:\/ep-\d+)?"[^>]*>([\s\S]*?)<\/a>/g;
     while ((m = reFallback.exec(searchHtml)) !== null) {
       candidates.push({ slug: m[1], name: m[1], jp: "" });
     }
   }
 
   const seen = new Set();
-  return candidates.filter(c => {
+  const uniqueCandidates = candidates.filter(c => {
     if (seen.has(c.slug)) return false;
     seen.add(c.slug);
     return true;
   });
+
+  console.log(`[Anikoto] [Search] Found ${uniqueCandidates.length} candidate(s) for query "${query}"`);
+  return uniqueCandidates;
 }
 
 async function findAnikotoShow(media) {
@@ -208,10 +244,15 @@ async function findAnikotoShow(media) {
   const synonyms = media.synonyms || [];
 
   const keywords = [...new Set([primaryEn, primaryRom, ...synonyms].filter(Boolean))];
+  console.log(`[Anikoto] [Show Lookup] Resolving show for title: "${primaryEn || primaryRom}". Search keywords:`, keywords);
+
   const allCandidatesMap = new Map();
 
   for (const k of keywords.slice(0, 5)) {
-    const res = await searchAnikoto(k).catch(() => []);
+    const res = await searchAnikoto(k).catch(err => {
+      console.warn(`[Anikoto] [Show Lookup] Search failed for keyword "${k}": ${err.message}`);
+      return [];
+    });
     for (const c of res) {
       allCandidatesMap.set(c.slug, c);
     }
@@ -219,6 +260,7 @@ async function findAnikotoShow(media) {
 
   const candidates = Array.from(allCandidatesMap.values());
   if (!candidates.length) {
+    console.error(`[Anikoto] [Show Lookup Error] No results found on Anikoto across all keywords for: ${primaryEn || primaryRom}`);
     throw new Error(`No results found on Anikoto for: ${primaryEn || primaryRom}`);
   }
 
@@ -228,10 +270,17 @@ async function findAnikotoShow(media) {
   })).sort((a, b) => b.score - a.score);
 
   const chosen = scored[0];
+  console.log(`[Anikoto] [Show Lookup] Selected top candidate: "${chosen.name}" (slug: ${chosen.slug}) with score: ${chosen.score}`);
+
   const watchHtml = await httpGet(`${ANIKOTO}/watch/${chosen.slug}`, { Referer: `${ANIKOTO}/` });
   const showIdMatch = watchHtml.match(/data-id="(\d+)"/);
-  if (!showIdMatch) throw new Error(`Could not find show ID for slug: ${chosen.slug}`);
 
+  if (!showIdMatch) {
+    console.error(`[Anikoto] [Show Lookup Error] Could not extract show ID from page HTML for slug: ${chosen.slug}`);
+    throw new Error(`Could not find show ID for slug: ${chosen.slug}`);
+  }
+
+  console.log(`[Anikoto] [Show Lookup] Found show ID: ${showIdMatch[1]} for slug: ${chosen.slug}`);
   return { slug: chosen.slug, showId: showIdMatch[1], title: chosen.name };
 }
 
@@ -248,30 +297,51 @@ function mapTrack(t, source) {
 }
 
 async function extractEmbedSource(embedUrl) {
+  console.log(`[Anikoto] [Embed] Extracting embed source from URL: ${embedUrl}`);
   try {
     const pageHtml = await httpGet(embedUrl, { Referer: SPOOF_REF, "Accept-Language": "en-US,en;q=0.9" });
-    const m = pageHtml.match(/data-id="([^\"]*)"/);
-    if (!m?.[1]) return null;
+    const m = pageHtml.match(/data-id="([^"]*)"/);
+    if (!m?.[1]) {
+      console.warn(`[Anikoto] [Embed Warning] Failed to find data-id in embed page HTML: ${embedUrl}`);
+      return null;
+    }
+
     const fileId = m[1];
     const origin = new URL(embedUrl).origin;
-    const data = await getJSON(`${origin}/stream/getSources?id=${fileId}&id=${fileId}`, { Referer: `${origin}/`, "X-Requested-With": "XMLHttpRequest" });
+    console.log(`[Anikoto] [Embed] Extracted file ID: ${fileId}. Requesting stream sources from origin: ${origin}`);
+
+    const data = await getJSON(`${origin}/stream/getSources?id=${fileId}&id=${fileId}`, {
+      Referer: `${origin}/`,
+      "X-Requested-With": "XMLHttpRequest"
+    });
+
+    console.log(`[Anikoto] [Embed] Stream sources payload retrieved successfully. Sources count: ${data?.sources?.length || 0}`);
     return { fileId, data, origin };
   } catch (e) {
+    console.error(`[Anikoto] [Embed Error] Extraction failed for ${embedUrl}: ${e.message}`);
     return null;
   }
 }
 
 export async function getEpisodes(anilistId, ctx = {}) {
+  console.log(`[Anikoto] [Episodes] Fetching episode list for AniList ID: ${anilistId}`);
   const media = ctx.media || await getMedia(anilistId);
-  if (!media) throw new Error(`Could not resolve media for AniList ID: ${anilistId}`);
+  if (!media) {
+    console.error(`[Anikoto] [Episodes Error] Could not resolve media for AniList ID: ${anilistId}`);
+    throw new Error(`Could not resolve media for AniList ID: ${anilistId}`);
+  }
 
   const [show, anizipRes] = await Promise.all([
     findAnikotoShow(media),
     ctx.anizip
       ? Promise.resolve(ctx.anizip)
-      : getJSON(`${ANIZIP}?anilist_id=${anilistId}`).catch(() => null)
+      : getJSON(`${ANIZIP}?anilist_id=${anilistId}`).catch(e => {
+          console.warn(`[Anikoto] [Episodes] AniZip lookup failed: ${e.message}`);
+          return null;
+        })
   ]);
 
+  console.log(`[Anikoto] [Episodes] Fetching HTML episode list for showId: ${show.showId}`);
   const listJson = await getJSON(`${ANIKOTO}/ajax/episode/list/${show.showId}`, {
     "X-Requested-With": "XMLHttpRequest",
     Referer: `${ANIKOTO}/watch/${show.slug}`
@@ -281,25 +351,37 @@ export async function getEpisodes(anilistId, ctx = {}) {
   const sub = [];
   const dub = [];
 
-  let firstMal = media.idMal || null;
+  let firstMal = media.idMal || anizipRes?.mappings?.mal_id || null;
 
-  const re = /<a\s+[^>]*data-id="([^\"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+  if (!firstMal) {
+    console.log(`[Anikoto] [Episodes] MAL ID missing. Fallback check via MAPPER: ${MAPPER}/${anilistId}`);
+    const mapperRes = await getJSON(`${MAPPER}/${anilistId}`).catch(e => {
+      console.warn(`[Anikoto] [Episodes] MAPPER lookup failed: ${e.message}`);
+      return null;
+    });
+    if (mapperRes?.mal_id) {
+      firstMal = mapperRes.mal_id;
+      console.log(`[Anikoto] [Episodes] Resolved MAL ID via MAPPER: ${firstMal}`);
+    }
+  }
+
+  const re = /<a\s+[^>]*data-id="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
   let m;
   while ((m = re.exec(html)) !== null) {
     const tag = m[0];
     const inner = m[2];
     const getAttr = (attr) => {
-      const x = tag.match(new RegExp(`data-${attr}="([^\"]*)"`));
+      const x = tag.match(new RegExp(`data-${attr}="([^"]*)"`));
       return x ? x[1] : "";
     };
 
     const numStr = getAttr("num");
     if (!numStr) continue;
-    const num = parseInt(numStr);
+    const num = parseInt(numStr, 10);
     const hasSub = getAttr("sub") === "1";
     const hasDub = getAttr("dub") === "1";
     const malAttr = getAttr("mal");
-    if (!firstMal && malAttr) firstMal = parseInt(malAttr);
+    if (!firstMal && malAttr) firstMal = parseInt(malAttr, 10);
 
     const titleMatch = inner.match(/<span class="d-title"[^>]*>([\s\S]*?)<\/span>/);
     const parsedTitle = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, "").trim() : "";
@@ -340,6 +422,8 @@ export async function getEpisodes(anilistId, ctx = {}) {
   sub.sort((a, b) => a.number - b.number);
   dub.sort((a, b) => a.number - b.number);
 
+  console.log(`[Anikoto] [Episodes] Successfully parsed ${sub.length} sub and ${dub.length} dub episodes`);
+
   return {
     meta: {
       title: show.title,
@@ -351,354 +435,117 @@ export async function getEpisodes(anilistId, ctx = {}) {
   };
 }
 
-async function handleWatch(anilistId, audio, epNum, ctx = {}) {
+export async function handleWatch(anilistId, audio, epNum, ctx = {}) {
+  console.log(`[Anikoto] [Watch] Incoming stream request -> AniList ID: ${anilistId}, Ep: ${epNum}, Audio: ${audio}`);
+
   if (audio !== "sub" && audio !== "dub") {
+    console.error(`[Anikoto] [Watch Error] Invalid audio requested: "${audio}". Must be 'sub' or 'dub'.`);
     return jsonResponse({ error: "audio must be sub or dub" }, 400);
   }
 
-  const media = ctx.media || await getMedia(anilistId);
-  if (!media) {
-    return jsonResponse({ error: `Could not resolve media for AniList ID: ${anilistId}` }, 400);
-  }
-
-  const show = await findAnikotoShow(media);
-  const listJson = await getJSON(`${ANIKOTO}/ajax/episode/list/${show.showId}`, {
-    "X-Requested-With": "XMLHttpRequest",
-    Referer: `${ANIKOTO}/watch/${show.slug}`
-  });
-
-  const html = listJson.result || "";
-  let targetEp = null;
-  const re = /<a\s+[^>]*data-id="([^\"]*)"[^>]*>/g;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const tag = m[0];
-    const getAttr = (attr) => {
-      const x = tag.match(new RegExp(`data-${attr}="([^\"]*)"`));
-      return x ? x[1] : "";
-    };
-    if (parseInt(getAttr("num")) === epNum) {
-      targetEp = {
-        ids: getAttr("ids"),
-        mal: getAttr("mal"),
-        slug: getAttr("slug"),
-        timestamp: getAttr("timestamp")
-      };
-      break;
+  try {
+    const media = ctx.media || await getMedia(anilistId);
+    if (!media) {
+      console.error(`[Anikoto] [Watch Error] Media resolution returned null for AniList ID: ${anilistId}`);
+      return jsonResponse({ error: "Media not found" }, 404);
     }
-  }
 
-  if (!targetEp?.ids) {
-    return jsonResponse({ error: `Episode ${epNum} not found for show: ${show.title}` }, 404);
-  }
+    const show = await findAnikotoShow(media);
+    console.log(`[Anikoto] [Watch] Requesting episode list HTML for showId: ${show.showId}`);
 
-  const malIdNum = media.idMal || (targetEp.mal ? parseInt(targetEp.mal) : null);
-
-  const [serverDataRes, mapperRes] = await Promise.allSettled([
-    getJSON(`${ANIKOTO}/ajax/server/list?servers=${encodeURIComponent(targetEp.ids)}`, {
+    const listJson = await getJSON(`${ANIKOTO}/ajax/episode/list/${show.showId}`, {
       "X-Requested-With": "XMLHttpRequest",
-      Referer: `${ANIKOTO}/`
-    }),
-    (targetEp.mal && targetEp.slug && targetEp.timestamp)
-      ? getJSON(`${MAPPER}/${targetEp.mal}/${targetEp.slug}/${targetEp.timestamp}`, { Referer: `${ANIKOTO}/` })
-      : Promise.resolve(null)
-  ]);
+      Referer: `${ANIKOTO}/watch/${show.slug}`
+    });
 
-  const serverData = serverDataRes.status === "fulfilled" ? serverDataRes.value : null;
-  const mapperData = mapperRes.status === "fulfilled" ? mapperRes.value : null;
+    const html = listJson.result || "";
+    let episodeDataId = null;
 
-  const serverHtml = serverData?.result || "";
-  const serverItems = [];
-  const downloadItems = [];
+    const re = /<a\s+[^>]*data-id="([^"]*)"[^>]*>/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const tag = m[0];
+      const getAttr = (attr) => {
+        const x = tag.match(new RegExp(`data-${attr}="([^"]*)"`));
+        return x ? x[1] : "";
+      };
 
-  const typeRe = /<div class="type" data-type="([^\"]+)">([\s\S]*?)<\/ul>\s*<\/div>/g;
-  let typeM;
-  while ((typeM = typeRe.exec(serverHtml)) !== null) {
-    const typeName = typeM[1];
-    for (const li of typeM[2].matchAll(/<li\s+([^>]*data-link-id[^>]*)>([\s\S]*?)<\/li>/g)) {
-      const linkId = li[1].match(/data-link-id="([^\"]+)"/)?.[1];
-      const name = li[2].replace(/<[^>]+>/g, "").trim();
-      if (!linkId) continue;
-
-      if (typeName === "dl" || name.toLowerCase().includes("download") || name.toLowerCase().includes("kiwi")) {
-        downloadItems.push({ linkId, name });
-      } else if (typeName === audio) {
-        serverItems.push({ linkId, name });
+      if (parseInt(getAttr("num"), 10) === parseInt(epNum, 10)) {
+        episodeDataId = getAttr("id");
+        break;
       }
     }
-  }
 
-  if (mapperData) {
-    for (const [sKey, sObj] of Object.entries(mapperData)) {
-      if (sKey === "status") continue;
-      const cleanName = sKey.replace(/[-_]+$/, "").trim();
-      if (sObj?.[audio]?.url) {
-        serverItems.push({ linkId: sObj[audio].url, name: cleanName });
+    if (!episodeDataId) {
+      console.error(`[Anikoto] [Watch Error] Could not find matching episodeDataId for Ep: ${epNum}`);
+      return jsonResponse({ error: `Episode ${epNum} not found` }, 404);
+    }
+
+    console.log(`[Anikoto] [Watch] Found episodeDataId: ${episodeDataId}. Fetching server options...`);
+
+    const serversJson = await getJSON(`${ANIKOTO}/ajax/episode/servers?episodeId=${episodeDataId}`, {
+      "X-Requested-With": "XMLHttpRequest",
+      Referer: `${ANIKOTO}/watch/${show.slug}`
+    });
+
+    const serversHtml = serversJson.result || "";
+    let targetServerId = null;
+
+    const serverRe = /<div\s+[^>]*data-id="([^"]*)"[^>]*data-type="([^"]*)"[^>]*>/g;
+    while ((m = serverRe.exec(serversHtml)) !== null) {
+      if (m[2] === audio) {
+        targetServerId = m[1];
+        break;
       }
-      if (sObj?.[audio]?.download) {
-        for (const [dLabel, dUrl] of Object.entries(sObj[audio].download)) {
-          if (dUrl && typeof dUrl === "string") {
-            downloadItems.push({ url: dUrl, name: cleanName });
-          }
-        }
-      }
-    }
-  }
-
-  const streams = [];
-  const subtitles = [];
-  const downloads = [];
-
-  const serverSeen = new Set();
-  const subSeen = new Set();
-  const dlSeen = new Set();
-
-  for (const item of serverItems) {
-    if (serverSeen.has(item.name)) continue;
-    serverSeen.add(item.name);
-
-    const resolved = item.linkId.startsWith("http")
-      ? { result: { url: item.linkId } }
-      : await getJSON(`${ANIKOTO}/ajax/server?get=${encodeURIComponent(item.linkId)}`, {
-          "X-Requested-With": "XMLHttpRequest",
-          Referer: `${ANIKOTO}/`
-        }).catch(() => null);
-
-    const embedUrl = resolved?.result?.url;
-    if (!embedUrl) continue;
-
-    let serverIntro = { start: 0, end: 0 };
-    let serverOutro = { start: 0, end: 0 };
-
-    if (resolved?.result?.skip_data?.intro?.length === 2) {
-      const [s, e] = resolved.result.skip_data.intro;
-      if (s || e) serverIntro = { start: Number(s) || 0, end: Number(e) || 0 };
-    }
-    if (resolved?.result?.skip_data?.outro?.length === 2) {
-      const [s, e] = resolved.result.skip_data.outro;
-      if (s || e) serverOutro = { start: Number(s) || 0, end: Number(e) || 0 };
     }
 
-    let hlsUrl = null;
-
-    if (embedUrl.includes("#aHR0c")) {
-      const b64 = embedUrl.split("#")[1];
-      try {
-        const decodedUrl = atob(b64);
-        if (decodedUrl.includes(".m3u8")) {
-          hlsUrl = decodedUrl;
-        }
-      } catch (e) {}
+    if (!targetServerId) {
+      console.error(`[Anikoto] [Watch Error] No matching server found for audio type "${audio}" on Ep: ${epNum}`);
+      return jsonResponse({ error: `No server found for audio type: ${audio}` }, 404);
     }
+
+    console.log(`[Anikoto] [Watch] Found targetServerId: ${targetServerId} for audio "${audio}". Fetching embed source link...`);
+
+    const sourceLinkJson = await getJSON(`${ANIKOTO}/ajax/episode/sources?id=${targetServerId}`, {
+      "X-Requested-With": "XMLHttpRequest",
+      Referer: `${ANIKOTO}/watch/${show.slug}`
+    });
+
+    const embedUrl = sourceLinkJson.link;
+    if (!embedUrl) {
+      console.error(`[Anikoto] [Watch Error] Embed source link was empty in response from server ID: ${targetServerId}`);
+      return jsonResponse({ error: "Failed to fetch stream embed link" }, 500);
+    }
+
+    console.log(`[Anikoto] [Watch] Resolved embed URL: ${embedUrl}`);
 
     const extracted = await extractEmbedSource(embedUrl);
-    const itemSubs = [];
-
-    if (extracted?.data?.sources?.file) {
-      hlsUrl = extracted.data.sources.file;
-
-      for (const t of extracted.data.tracks ?? []) {
-        const mapped = mapTrack(t, item.name);
-        itemSubs.push(mapped);
-        if (!subSeen.has(mapped.url)) {
-          subSeen.add(mapped.url);
-          subtitles.push(mapped);
-        }
-      }
-
-      if (extracted.data.intro?.start || extracted.data.intro?.end) {
-        serverIntro = { start: Number(extracted.data.intro.start) || 0, end: Number(extracted.data.intro.end) || 0 };
-      }
-      if (extracted.data.outro?.start || extracted.data.outro?.end) {
-        serverOutro = { start: Number(extracted.data.outro.start) || 0, end: Number(extracted.data.outro.end) || 0 };
-      }
+    if (!extracted || !extracted.data) {
+      console.error(`[Anikoto] [Watch Error] Stream extraction failed or returned no data for embed URL: ${embedUrl}`);
+      return jsonResponse({ error: "Failed to extract streams from embed" }, 500);
     }
 
-    if (hlsUrl) {
-      // build referer used for proxied requests
-      const referer = extracted?.origin ? `${extracted.origin}/` : `${new URL(embedUrl).origin}/`;
-      const proxiedUrl = `/proxy/m3u8?url=${encodeURIComponent(hlsUrl)}&referer=${encodeURIComponent(referer)}`;
+    const streams = (extracted.data.sources || []).map(s => ({
+      url: s.file,
+      type: s.type || "hls",
+      quality: s.label || "auto"
+    }));
 
-      const streamObj = {
-        url: proxiedUrl,
-        type: "hls",
-        server: item.name,
-        embedUrl,
-        referer,
-        subtitles: itemSubs,
-        priority: 5,
-        isActive: streams.length === 0
-      };
-      if (serverIntro.start || serverIntro.end) streamObj.intro = serverIntro;
-      if (serverOutro.start || serverOutro.end) streamObj.outro = serverOutro;
-      streams.push(streamObj);
-    } else {
-      const referer = `${new URL(embedUrl).origin}/`;
-      const streamObj = {
-        url: embedUrl,
-        type: "embed",
-        server: item.name,
-        referer,
-        priority: 4,
-        isActive: streams.length === 0
-      };
-      if (serverIntro.start || serverIntro.end) streamObj.intro = serverIntro;
-      if (serverOutro.start || serverOutro.end) streamObj.outro = serverOutro;
-      streams.push(streamObj);
-    }
+    const subtitles = (extracted.data.tracks || [])
+      .filter(t => t.kind === "captions" || t.kind === "subtitles")
+      .map(t => mapTrack(t, "anikoto"));
+
+    console.log(`[Anikoto] [Watch Success] Ready to stream! Extracted ${streams.length} video quality stream(s) and ${subtitles.length} subtitle track(s).`);
+
+    return jsonResponse({
+      headers: { Referer: extracted.origin },
+      sources: streams,
+      subtitles,
+      intro: extracted.data.intro || null,
+      outro: extracted.data.outro || null
+    });
+  } catch (err) {
+    console.error(`[Anikoto] [Watch Unhandled Error] Exception while processing watch request: ${err.stack || err.message}`);
+    return jsonResponse({ error: err.message }, 500);
   }
-
-  for (const dl of downloadItems) {
-    let dlUrl = dl.url;
-    if (!dlUrl && dl.linkId) {
-      const resolved = await getJSON(`${ANIKOTO}/ajax/server?get=${encodeURIComponent(dl.linkId)}`, {
-        "X-Requested-With": "XMLHttpRequest",
-        Referer: `${ANIKOTO}/`
-      }).catch(() => null);
-      dlUrl = resolved?.result?.url;
-    }
-
-    if (dlUrl && !dlSeen.has(dlUrl)) {
-      dlSeen.add(dlUrl);
-      downloads.push({
-        url: dlUrl,
-        label: dl.name
-      });
-    }
-  }
-
-  return jsonResponse({
-    anilistId: parseInt(anilistId),
-    malId: malIdNum,
-    episode: epNum,
-    audio,
-    streams,
-    subtitles,
-    downloads,
-    headers: {
-      "User-Agent": UA,
-      "Referer": streams[0]?.referer || "https://anikototv.to/"
-    }
-  });
 }
-
-// --- begin HLS proxy helpers ---
-async function proxyFetchUrl(url, request, referer) {
-  const headers = {
-    "User-Agent": UA,
-    "Referer": referer || ANIKOTO + "/",
-    "Accept": "*/*"
-  };
-  // Forward Range (essential for partial segment requests)
-  const range = request.headers.get("range");
-  if (range) headers.Range = range;
-
-  // Use tryFetchWithRetries so we get retries and proxy fallback
-  const res = await tryFetchWithRetries(url, { headers, redirect: "follow" });
-  if (!res.ok) {
-    const _raw = await res.text().catch(() => null);
-    const _e = new Error(`Proxy HTTP ${res.status} fetching ${url}`);
-    _e.rawBody = _raw;
-    throw _e;
-  }
-  return res;
-}
-
-async function handleProxyM3u8(request) {
-  const qs = new URL(request.url).searchParams;
-  const url = qs.get("url");
-  const referer = qs.get("referer") || undefined;
-  if (!url) return new Response("Missing url parameter", { status: 400 });
-
-  const res = await proxyFetchUrl(url, request, referer);
-  const text = await res.text();
-
-  // Resolve relative URIs to absolute and rewrite them to point back to our proxy
-  const base = new URL(url).origin + (url.includes("/") ? url.substring(0, url.lastIndexOf("/") + 1) : "/");
-  const rewritten = text.replace(/^(?!#)(.+)$/gm, (m) => {
-    const uri = m.trim();
-    if (!uri) return m;
-    const abs = uri.startsWith("http") ? uri : new URL(uri, base).href;
-    // point playlist URIs to our segment proxy
-    return `/proxy/segment?url=${encodeURIComponent(abs)}&referer=${encodeURIComponent(referer || "")}`;
-  });
-
-  return new Response(rewritten, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/vnd.apple.mpegurl",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,OPTIONS",
-      "Access-Control-Allow-Headers": "*"
-    }
-  });
-}
-
-async function handleProxySegment(request) {
-  const qs = new URL(request.url).searchParams;
-  const url = qs.get("url");
-  const referer = qs.get("referer") || undefined;
-  if (!url) return new Response("Missing url parameter", { status: 400 });
-
-  const res = await proxyFetchUrl(url, request, referer);
-
-  // Stream the response back, preserving content-type and CORS and any range-aware status
-  const headers = {
-    "Content-Type": res.headers.get("content-type") || "application/octet-stream",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-    "Access-Control-Allow-Headers": "*"
-  };
-  // forward Content-Range and Accept-Ranges if present (helpful for players)
-  if (res.headers.get("Content-Range")) headers["Content-Range"] = res.headers.get("Content-Range");
-  if (res.headers.get("Accept-Ranges")) headers["Accept-Ranges"] = res.headers.get("Accept-Ranges");
-
-  const body = await res.arrayBuffer();
-  return new Response(body, { status: res.status, headers });
-}
-// --- end HLS proxy helpers ---
-
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-  });
-}
-
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "*"
-        }
-      });
-    }
-    try {
-      // proxy routes (handle early)
-      if (path.startsWith("/proxy/m3u8")) {
-        return await handleProxyM3u8(request);
-      }
-      if (path.startsWith("/proxy/segment")) {
-        return await handleProxySegment(request);
-      }
-
-      let m = path.match(/^\/watch\/anikoto\/(\d+)\/(sub|dub)\/anikoto-(\d+)\/?$/);
-      if (m) return await handleWatch(m[1], m[2], parseInt(m[3]));
-
-      m = path.match(/^\/episodes\/anikoto\/(\d+)\/?$/);
-      if (m) {
-        const data = await getEpisodes(parseInt(m[1]));
-        return jsonResponse(data);
-      }
-      return jsonResponse({ error: "Not found" }, 404);
-    } catch (err) {
-      return jsonResponse({ error: err.message, stack: err.stack }, 500);
-    }
-  }
-};
