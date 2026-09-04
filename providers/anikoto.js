@@ -6,6 +6,26 @@ const ANIZIP = "https://api.ani.zip/mappings";
 const SPOOF_REF = "https://hianimes.re/";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+// Simple internal proxy list (used as fallback when direct fetch fails). Add/remove entries as needed.
+// NOTE: This implements a best-effort attempt to use HTTP(S) proxies by requesting the full target URL
+// as the path on the proxy (proxy + '/' + target). Not all proxies support this; for reliable proxying
+// prefer using an http(s)-proxy agent at the runtime level (Node) or an upstream proxy service.
+const PROXIES = [
+  "http://31.76.102.15:8080",
+  "http://84.247.171.137:3128",
+  "http://103.48.71.186:83",
+  "http://187.250.70.193:3128",
+  "http://46.203.233.116:3128",
+  "http://94.247.244.120:3128",
+  "http://154.59.56.78:999",
+  "http://144.31.252.120:8443",
+  "http://85.14.247.185:3128",
+  "http://150.241.71.85:3128"
+];
+
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY = 500; // ms
+
 const LANG_MAP = {
   en: "en", english: "en", ja: "ja", japanese: "ja",
   fr: "fr", french: "fr", de: "de", german: "de",
@@ -16,26 +36,98 @@ function normalize(s) {
   return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-async function httpGet(url, headers = {}) {
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "text/html,*/*", ...headers } });
-  if (!res.ok) {
-    const _raw = await res.text().catch(() => null);
-    const _e = new Error(`HTTP ${res.status} fetching ${url}`);
-    _e.rawBody = _raw;
-    throw _e;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Build a proxied URL by appending the encoded target URL to the proxy address.
+// This is a best-effort approach and may not work with all proxies.
+function buildProxiedUrl(proxy, target) {
+  // If proxy already looks like a forwarding service (contains a '?url='), prefer that usage
+  if (proxy.includes('?url=')) {
+    return proxy.replace(/url=.*$/, `url=${encodeURIComponent(target)}`);
   }
+  // Ensure no trailing slash on proxy
+  const p = proxy.replace(/\/$/, '');
+  return `${p}/${target}`;
+}
+
+async function tryFetchWithRetries(url, init = {}, opts = {}) {
+  // opts: { maxRetries, proxies }
+  const maxRetries = opts.maxRetries ?? MAX_RETRIES;
+  const proxies = opts.proxies ?? PROXIES;
+
+  let lastErr = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // First try direct fetch
+    try {
+      const res = await fetch(url, init);
+      if (!res.ok) {
+        const raw = await res.text().catch(() => null);
+        const e = new Error(`HTTP ${res.status} fetching ${url}`);
+        e.rawBody = raw;
+        throw e;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      // exponential backoff before trying proxies or next attempt
+      const delay = RETRY_BASE_DELAY * Math.pow(2, attempt);
+      await sleep(delay);
+
+      // Try proxies in sequence for this attempt
+      for (const proxy of proxies) {
+        // only attempt HTTP/HTTPS proxies (skip socks entries)
+        if (!proxy.startsWith('http://') && !proxy.startsWith('https://')) continue;
+        try {
+          const proxiedUrl = buildProxiedUrl(proxy, url);
+          // When passing through a proxy this way, we should set Host header to original host
+          const clonedInit = { ...init, headers: { ...(init.headers || {}), Host: new URL(url).host, 'User-Agent': UA } };
+          const pres = await fetch(proxiedUrl, clonedInit);
+          if (!pres.ok) {
+            const raw = await pres.text().catch(() => null);
+            const e = new Error(`Proxy HTTP ${pres.status} via ${proxy} fetching ${url}`);
+            e.rawBody = raw;
+            throw e;
+          }
+          return pres;
+        } catch (pErr) {
+          // record and try next proxy
+          lastErr = pErr;
+          // small pause between proxy tries
+          await sleep(150);
+          continue;
+        }
+      }
+
+      // If this was the last attempt, break and throw
+      if (attempt === maxRetries - 1) break;
+    }
+  }
+
+  // all attempts failed
+  const err = new Error(`Failed to fetch ${url} after ${maxRetries} attempts`);
+  err.cause = lastErr;
+  throw err;
+}
+
+async function httpGet(url, headers = {}) {
+  const res = await tryFetchWithRetries(url, { headers: { "User-Agent": UA, Accept: "text/html,*/*", ...headers } });
   return res.text();
 }
 
 async function getJSON(url, headers = {}) {
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json,*/*", ...headers } });
-  if (!res.ok) {
-    const _raw = await res.text().catch(() => null);
-    const _e = new Error(`HTTP ${res.status} fetching ${url}`);
-    _e.rawBody = _raw;
+  const res = await tryFetchWithRetries(url, { headers: { "User-Agent": UA, Accept: "application/json,*/*", ...headers } });
+  // attempt to parse JSON; if parsing fails include body for debugging
+  try {
+    return await res.json();
+  } catch (e) {
+    const raw = await res.text().catch(() => null);
+    const _e = new Error(`Invalid JSON from ${url}`);
+    _e.rawBody = raw;
     throw _e;
   }
-  return res.json();
 }
 
 const MODIFIERS = [
@@ -158,7 +250,7 @@ function mapTrack(t, source) {
 async function extractEmbedSource(embedUrl) {
   try {
     const pageHtml = await httpGet(embedUrl, { Referer: SPOOF_REF, "Accept-Language": "en-US,en;q=0.9" });
-    const m = pageHtml.match(/data-id="([^"]*)"/);
+    const m = pageHtml.match(/data-id="([^\"]*)"/);
     if (!m?.[1]) return null;
     const fileId = m[1];
     const origin = new URL(embedUrl).origin;
@@ -500,7 +592,9 @@ async function proxyFetchUrl(url, request, referer) {
   // Forward Range (essential for partial segment requests)
   const range = request.headers.get("range");
   if (range) headers.Range = range;
-  const res = await fetch(url, { headers, redirect: "follow" });
+
+  // Use tryFetchWithRetries so we get retries and proxy fallback
+  const res = await tryFetchWithRetries(url, { headers, redirect: "follow" });
   if (!res.ok) {
     const _raw = await res.text().catch(() => null);
     const _e = new Error(`Proxy HTTP ${res.status} fetching ${url}`);
