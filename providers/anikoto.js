@@ -191,13 +191,13 @@ export async function getEpisodes(anilistId, ctx = {}) {
 
   let firstMal = media.idMal || null;
 
-  const re = /<a\s+[^>]*data-id="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+  const re = /<a\s+[^>]*data-id="([^\"]*)"[^>]*>([\s\S]*?)<\/a>/g;
   let m;
   while ((m = re.exec(html)) !== null) {
     const tag = m[0];
     const inner = m[2];
     const getAttr = (attr) => {
-      const x = tag.match(new RegExp(`data-${attr}="([^"]*)"`));
+      const x = tag.match(new RegExp(`data-${attr}="([^\"]*)"`));
       return x ? x[1] : "";
     };
 
@@ -277,12 +277,12 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
 
   const html = listJson.result || "";
   let targetEp = null;
-  const re = /<a\s+[^>]*data-id="([^"]*)"[^>]*>/g;
+  const re = /<a\s+[^>]*data-id="([^\"]*)"[^>]*>/g;
   let m;
   while ((m = re.exec(html)) !== null) {
     const tag = m[0];
     const getAttr = (attr) => {
-      const x = tag.match(new RegExp(`data-${attr}="([^"]*)"`));
+      const x = tag.match(new RegExp(`data-${attr}="([^\"]*)"`));
       return x ? x[1] : "";
     };
     if (parseInt(getAttr("num")) === epNum) {
@@ -319,12 +319,12 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   const serverItems = [];
   const downloadItems = [];
 
-  const typeRe = /<div class="type" data-type="([^"]+)">([\s\S]*?)<\/ul>\s*<\/div>/g;
+  const typeRe = /<div class="type" data-type="([^\"]+)">([\s\S]*?)<\/ul>\s*<\/div>/g;
   let typeM;
   while ((typeM = typeRe.exec(serverHtml)) !== null) {
     const typeName = typeM[1];
     for (const li of typeM[2].matchAll(/<li\s+([^>]*data-link-id[^>]*)>([\s\S]*?)<\/li>/g)) {
-      const linkId = li[1].match(/data-link-id="([^"]+)"/)?.[1];
+      const linkId = li[1].match(/data-link-id="([^\"]+)"/)?.[1];
       const name = li[2].replace(/<[^>]+>/g, "").trim();
       if (!linkId) continue;
 
@@ -423,12 +423,16 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
     }
 
     if (hlsUrl) {
+      // build referer used for proxied requests
+      const referer = extracted?.origin ? `${extracted.origin}/` : `${new URL(embedUrl).origin}/`;
+      const proxiedUrl = `/proxy/m3u8?url=${encodeURIComponent(hlsUrl)}&referer=${encodeURIComponent(referer)}`;
+
       const streamObj = {
-        url: hlsUrl,
+        url: proxiedUrl,
         type: "hls",
         server: item.name,
         embedUrl,
-        referer: extracted?.origin ? `${extracted.origin}/` : `${new URL(embedUrl).origin}/`,
+        referer,
         subtitles: itemSubs,
         priority: 5,
         isActive: streams.length === 0
@@ -437,11 +441,12 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
       if (serverOutro.start || serverOutro.end) streamObj.outro = serverOutro;
       streams.push(streamObj);
     } else {
+      const referer = `${new URL(embedUrl).origin}/`;
       const streamObj = {
         url: embedUrl,
         type: "embed",
         server: item.name,
-        referer: `${new URL(embedUrl).origin}/`,
+        referer,
         priority: 4,
         isActive: streams.length === 0
       };
@@ -485,6 +490,80 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   });
 }
 
+// --- begin HLS proxy helpers ---
+async function proxyFetchUrl(url, request, referer) {
+  const headers = {
+    "User-Agent": UA,
+    "Referer": referer || ANIKOTO + "/",
+    "Accept": "*/*"
+  };
+  // Forward Range (essential for partial segment requests)
+  const range = request.headers.get("range");
+  if (range) headers.Range = range;
+  const res = await fetch(url, { headers, redirect: "follow" });
+  if (!res.ok) {
+    const _raw = await res.text().catch(() => null);
+    const _e = new Error(`Proxy HTTP ${res.status} fetching ${url}`);
+    _e.rawBody = _raw;
+    throw _e;
+  }
+  return res;
+}
+
+async function handleProxyM3u8(request) {
+  const qs = new URL(request.url).searchParams;
+  const url = qs.get("url");
+  const referer = qs.get("referer") || undefined;
+  if (!url) return new Response("Missing url parameter", { status: 400 });
+
+  const res = await proxyFetchUrl(url, request, referer);
+  const text = await res.text();
+
+  // Resolve relative URIs to absolute and rewrite them to point back to our proxy
+  const base = new URL(url).origin + (url.includes("/") ? url.substring(0, url.lastIndexOf("/") + 1) : "/");
+  const rewritten = text.replace(/^(?!#)(.+)$/gm, (m) => {
+    const uri = m.trim();
+    if (!uri) return m;
+    const abs = uri.startsWith("http") ? uri : new URL(uri, base).href;
+    // point playlist URIs to our segment proxy
+    return `/proxy/segment?url=${encodeURIComponent(abs)}&referer=${encodeURIComponent(referer || "")}`;
+  });
+
+  return new Response(rewritten, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/vnd.apple.mpegurl",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,OPTIONS",
+      "Access-Control-Allow-Headers": "*"
+    }
+  });
+}
+
+async function handleProxySegment(request) {
+  const qs = new URL(request.url).searchParams;
+  const url = qs.get("url");
+  const referer = qs.get("referer") || undefined;
+  if (!url) return new Response("Missing url parameter", { status: 400 });
+
+  const res = await proxyFetchUrl(url, request, referer);
+
+  // Stream the response back, preserving content-type and CORS and any range-aware status
+  const headers = {
+    "Content-Type": res.headers.get("content-type") || "application/octet-stream",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Headers": "*"
+  };
+  // forward Content-Range and Accept-Ranges if present (helpful for players)
+  if (res.headers.get("Content-Range")) headers["Content-Range"] = res.headers.get("Content-Range");
+  if (res.headers.get("Accept-Ranges")) headers["Accept-Ranges"] = res.headers.get("Accept-Ranges");
+
+  const body = await res.arrayBuffer();
+  return new Response(body, { status: res.status, headers });
+}
+// --- end HLS proxy helpers ---
+
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -507,6 +586,14 @@ export default {
       });
     }
     try {
+      // proxy routes (handle early)
+      if (path.startsWith("/proxy/m3u8")) {
+        return await handleProxyM3u8(request);
+      }
+      if (path.startsWith("/proxy/segment")) {
+        return await handleProxySegment(request);
+      }
+
       let m = path.match(/^\/watch\/anikoto\/(\d+)\/(sub|dub)\/anikoto-(\d+)\/?$/);
       if (m) return await handleWatch(m[1], m[2], parseInt(m[3]));
 
