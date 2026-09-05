@@ -9,6 +9,7 @@ import anidbappHandler             from "./providers/anidbapp.js";
 import dhiveHandler                from "./providers/2dhive.js";
 import animenosubHandler           from "./providers/animenosub.js";
 import anizoneHandler              from "./providers/anizone.js";
+import aniwavesHandler             from "./providers/aniwaves.js";
 import anibdHandler                from "./providers/anibd.js";
 import senshiHandler               from "./providers/senshi.js";
 import kaaHandler                  from "./providers/kickassanime.js";
@@ -220,6 +221,15 @@ export default {
       );
     }
 
+    m = path.match(/^\/watch\/aniwaves\/(\d+)\/(sub|dub)\/aniwaves-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:aniwaves:${id}:${audio}:${ep}`,
+        () => aniwavesHandler.fetch(request)
+      );
+    }
+
     m = path.match(/^\/watch\/anibd\/(\d+)\/(sub|dub)\/anibd-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
@@ -275,6 +285,7 @@ export default {
         "2dhive",
         "animenosub",
         "anizone",
+        "aniwaves",
         "anibd",
         "senshi",
         "kaa",
@@ -296,6 +307,7 @@ export default {
         "/stream/2dhive/download/:id/sub|dub/:ep",
         "/watch/animenosub/:id/sub|dub/animenosub-:ep",
         "/watch/anizone/:id/sub|dub/anizone-:ep",
+        "/watch/aniwaves/:id/sub|dub/aniwaves-:ep",
         "/watch/anibd/:id/sub|dub/anibd-:ep",
         "/watch/senshi/:id/sub|dub/senshi-:ep",
         "/watch/kaa/:id/sub|dub/kaa-:ep",
