@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Anivexa API — Docs</title>
-  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 13 providers, exact-match identity resolution via AniList IDs."/>
+  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 14 providers, exact-match identity resolution via AniList IDs."/>
   <link rel="icon" type="image/svg+xml" href="logo.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -63,6 +63,7 @@
         <a class="nav-item" href="#watch-2dhive"><span class="method">GET</span>2DHive</a>
         <a class="nav-item" href="#watch-animenosub"><span class="method">GET</span>AnimeNoSub</a>
         <a class="nav-item" href="#watch-anizone"><span class="method">GET</span>AniZone</a>
+        <a class="nav-item" href="#watch-aniwaves"><span class="method">GET</span>AniWaves</a>
         <a class="nav-item" href="#watch-anibd"><span class="method">GET</span>AniBD</a>
         <a class="nav-item" href="#watch-senshi"><span class="method">GET</span>Senshi</a>
         <a class="nav-item" href="#watch-kaa"><span class="method">GET</span>KickAssAnime</a>
@@ -78,7 +79,7 @@
     <section class="section section-hero" id="overview">
       <img src="logo.svg" alt="Anivexa" class="hero-logo"/>
       <h1>Anivexa API</h1>
-      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 13 providers using a single AniList ID — no scraping, no guessing, exact-match identity resolution.</p>
+      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 14 providers using a single AniList ID — no scraping, no guessing, exact-match identity resolution.</p>
       <div class="callout">
         <span class="callout-icon">💡</span>
         <span>All endpoints are read-only. No authentication required. All responses are JSON with CORS headers included.</span>
@@ -99,7 +100,7 @@
 
     <section class="section" id="providers-ref">
       <h2>Providers</h2>
-      <p>Thirteen providers are available. Each uses exact-match identity resolution via AniList or MAL IDs — no blind fuzzy matching.</p>
+      <p>Fourteen providers are available. Each uses exact-match identity resolution via AniList or MAL IDs — no blind fuzzy matching.</p>
       <div class="provider-grid">
         <div class="provider-card" style="--i:0"><div class="provider-name">mkissa</div><div class="provider-meta">MKissa</div></div>
         <div class="provider-card" style="--i:1"><div class="provider-name">reanime</div><div class="provider-meta">Reanime</div></div>
@@ -110,10 +111,11 @@
         <div class="provider-card" style="--i:6"><div class="provider-name">2dhive</div><div class="provider-meta">2DHive</div></div>
         <div class="provider-card" style="--i:7"><div class="provider-name">animenosub</div><div class="provider-meta">AnimeNoSub</div></div>
         <div class="provider-card" style="--i:8"><div class="provider-name">anizone</div><div class="provider-meta">AniZone</div></div>
-        <div class="provider-card" style="--i:9"><div class="provider-name">anibd</div><div class="provider-meta">AniBD</div></div>
-        <div class="provider-card" style="--i:10"><div class="provider-name">senshi</div><div class="provider-meta">Senshi</div></div>
-        <div class="provider-card" style="--i:11"><div class="provider-name">kaa</div><div class="provider-meta">KickAssAnime</div></div>
-        <div class="provider-card" style="--i:12"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
+        <div class="provider-card" style="--i:9"><div class="provider-name">aniwaves</div><div class="provider-meta">AniWaves</div></div>
+        <div class="provider-card" style="--i:10"><div class="provider-name">anibd</div><div class="provider-meta">AniBD</div></div>
+        <div class="provider-card" style="--i:11"><div class="provider-name">senshi</div><div class="provider-meta">Senshi</div></div>
+        <div class="provider-card" style="--i:12"><div class="provider-name">kaa</div><div class="provider-meta">KickAssAnime</div></div>
+        <div class="provider-card" style="--i:13"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
       </div>
     </section>
 
@@ -466,6 +468,28 @@
         </div>
         <div class="endpoint-body">
           <p class="endpoint-desc">Returns stream sources from AniZone for the specified episode.</p>
+          <table class="params-table">
+            <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="param-name">:id</td><td class="param-type">integer</td><td class="param-desc">AniList media ID</td></tr>
+              <tr><td class="param-name">sub|dub</td><td class="param-type">string</td><td class="param-desc">Audio track preference</td></tr>
+              <tr><td class="param-name">:ep</td><td class="param-type">integer</td><td class="param-desc">Episode number</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="watch-aniwaves">
+      <h2>AniWaves</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/aniwaves/<span class="param">:id</span>/<span class="param">sub|dub</span>/aniwaves-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/aniwaves/16498/sub/aniwaves-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Returns AniWaves stream sources for the specified episode, including direct HLS from Vidplay, MyCloud, and BYFMS, DATASV quality MP4 sources, and embed fallbacks.</p>
           <table class="params-table">
             <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
             <tbody>

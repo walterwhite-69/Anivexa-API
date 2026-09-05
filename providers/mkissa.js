@@ -15,7 +15,6 @@ const BOOT_EPOCH_MS = 604800000;
 const BOOT_GRACE_MS = 86400000;
 const AA_REQ_MS = 300000;
 const WATCH_MEMORY_TTL = 3 * 60 * 60 * 1000;
-const EPISODE_QUERY_HASH = "b0a4efecd8df8fce709468d54aaa716b712c93b5b7e351888ddc242898abc38e";
 const DISCOVERY_CONCURRENCY = 16;
 const DISCOVERY_LIMIT = 600;
 const FETCH_TIMEOUT_MS = 10000;
@@ -38,6 +37,7 @@ const HEX_TABLE = {
 
 let cryptoConfigCache = null;
 let bootstrapCache = null;
+let episodeQueryCache = null;
 const sessionCookies = new Map();
 const watchMemoryCache = new Map();
 
@@ -97,6 +97,22 @@ function browserHeaders(headers = {}) {
   };
 }
 __name(browserHeaders, "browserHeaders");
+
+function apiHeaders(buildId, headers = {}) {
+  return {
+    "Referer": `${REFERER}/`,
+    "Origin": REFERER,
+    "x-build-id": buildId,
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Priority": "u=1, i",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "cross-site",
+    ...headers
+  };
+}
+__name(apiHeaders, "apiHeaders");
 
 async function sessionFetch(url, options = {}) {
   const res = await fetch(url, {
@@ -160,58 +176,195 @@ function functionSource(text, name) {
 }
 __name(functionSource, "functionSource");
 
+function findStatementEnd(text, start) {
+  let parens = 0;
+  let brackets = 0;
+  let braces = 0;
+  let quote = "";
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") parens++;
+    else if (ch === ")") parens--;
+    else if (ch === "[") brackets++;
+    else if (ch === "]") brackets--;
+    else if (ch === "{") braces++;
+    else if (ch === "}") braces--;
+    else if (ch === ";" && !parens && !brackets && !braces) return i;
+  }
+  return -1;
+}
+__name(findStatementEnd, "findStatementEnd");
+
+function splitTopLevel(text) {
+  const out = [];
+  let start = 0;
+  let parens = 0;
+  let brackets = 0;
+  let braces = 0;
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") parens++;
+    else if (ch === ")") parens--;
+    else if (ch === "[") brackets++;
+    else if (ch === "]") brackets--;
+    else if (ch === "{") braces++;
+    else if (ch === "}") braces--;
+    else if (ch === "," && !parens && !brackets && !braces) {
+      out.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(text.slice(start));
+  return out;
+}
+__name(splitTopLevel, "splitTopLevel");
+
+function declarationStatementAt(text, index) {
+  const start = Math.max(text.lastIndexOf("const ", index), text.lastIndexOf("let ", index), text.lastIndexOf("var ", index));
+  if (start < 0) return null;
+  const end = findStatementEnd(text, start);
+  if (end < 0 || index > end) return null;
+  const keyword = /^(?:const|let|var)\s+/.exec(text.slice(start));
+  if (!keyword) return null;
+  const entries = splitTopLevel(text.slice(start + keyword[0].length, end)).map((value) => {
+    const entry = /^\s*([A-Za-z_$][\w$]*)\s*=\s*([\s\S]+)$/.exec(value);
+    return entry ? { name: entry[1], expression: entry[2], start, end } : null;
+  }).filter(Boolean);
+  return { start, end, entries };
+}
+__name(declarationStatementAt, "declarationStatementAt");
+
+function templateDependencies(expression) {
+  return [...expression.matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\b[^}]*\}/g)].map((match) => match[1]);
+}
+__name(templateDependencies, "templateDependencies");
+
+function templateDeclaration(chunk, name, before = chunk.length) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matches = [...chunk.matchAll(new RegExp(`\\b${escaped}\\s*=`, "g"))];
+  let fallback = null;
+  for (const match of matches) {
+    const statement = declarationStatementAt(chunk, match.index);
+    const entry = statement?.entries.find((value) => value.name === name);
+    if (!entry) continue;
+    if (!fallback) fallback = entry;
+    if (entry.start < before) fallback = entry;
+  }
+  return fallback;
+}
+__name(templateDeclaration, "templateDeclaration");
+
+function evalEpisodeQueryChunk(chunk) {
+  const operation = /\bepisode\s*\(\s*showId\s*:\s*\$showId\s*translationType\s*:\s*\$translationType\s*episodeString\s*:\s*\$episodeString\s*\)/g;
+  const operationInExpression = new RegExp(operation.source);
+  for (const match of chunk.matchAll(operation)) {
+    const statement = declarationStatementAt(chunk, match.index);
+    const candidate = statement?.entries.find((entry) => operationInExpression.test(entry.expression));
+    if (!candidate) continue;
+    const definitions = new Map();
+    const resolving = new Set();
+    const resolve = (name, before) => {
+      if (definitions.has(name) || resolving.has(name)) return;
+      const entry = templateDeclaration(chunk, name, before);
+      if (!entry) return;
+      resolving.add(name);
+      for (const dependency of templateDependencies(entry.expression)) resolve(dependency, entry.start);
+      resolving.delete(name);
+      definitions.set(name, entry);
+    };
+    resolve(candidate.name, candidate.start + 1);
+    try {
+      const source = [...definitions.values()].map((entry) => `const ${entry.name}=${entry.expression};`).join("\n");
+      const query = Function(`${source}\nreturn ${candidate.name}();`)();
+      if (typeof query === "string" && /\bepisode\s*\(/.test(query) && query.includes("$episodeString") && !query.includes("${")) return query;
+    } catch {}
+  }
+  return null;
+}
+__name(evalEpisodeQueryChunk, "evalEpisodeQueryChunk");
+
 function evalFragmentCryptoChunk(chunk) {
-  const configAt = chunk.search(/\b(?:saltMul|fragMul)\s*:/);
-  const declarationAt = configAt === -1 ? -1 : chunk.lastIndexOf("const ", configAt);
-  const layout = declarationAt === -1 ? null : /const\s+([A-Za-z_$][\w$]*)\s*=\s*(.+?),\s*[A-Za-z_$][\w$]*\s*=\s*Number\([^;]+?\),\s*[A-Za-z_$][\w$]*\s*=\s*Number\([^;]+?\),\s*([A-Za-z_$][\w$]*)\s*=\s*(\[[^\]]+\]),\s*([A-Za-z_$][\w$]*)\s*=\s*(\{[^{}]+\})\s*;\s*function\s+[A-Za-z_$][\w$]*\s*\(/.exec(chunk.slice(declarationAt));
-  if (!layout) return null;
-  const [, buildName, buildExpr, partsName, partsExpr, configName, configExpr] = layout;
-  const expression = `${buildExpr};${partsExpr};${configExpr}`;
-  const names = new Set([...expression.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
-  const helpers = [];
-  for (let pass = 0; pass < 8; pass++) {
-    let changed = false;
-    for (const name of [...names]) {
-      if (helpers.some((source) => new RegExp(`function\\s+${name}\\s*\\(`).test(source))) continue;
-      const source = functionSource(chunk, name);
-      if (!source) continue;
-      helpers.push(source);
-      for (const ref of source.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
-        if (!names.has(ref[1])) {
-          names.add(ref[1]);
-          changed = true;
+  for (const match of chunk.matchAll(/\bsaltMul\s*:/g)) {
+    const declarationAt = chunk.lastIndexOf("const ", match.index);
+    const declarationEnd = declarationAt === -1 ? -1 : findStatementEnd(chunk, declarationAt);
+    if (declarationEnd === -1 || match.index > declarationEnd) continue;
+    const declarations = splitTopLevel(chunk.slice(declarationAt + 6, declarationEnd)).map((value) => {
+      const entry = /^\s*([A-Za-z_$][\w$]*)\s*=\s*([\s\S]+)$/.exec(value);
+      return entry ? { name: entry[1], expression: entry[2] } : null;
+    }).filter(Boolean);
+    const configIndex = declarations.findIndex((entry) => /\b(?:saltMul|fragMul)\s*:/.test(entry.expression));
+    const partsIndex = declarations.slice(0, configIndex).map((entry, index) => ({ entry, index })).reverse().find(({ entry }) => entry.expression.trim().startsWith("["))?.index;
+    if (configIndex < 1 || partsIndex === undefined) continue;
+    const [build] = declarations;
+    const parts = declarations[partsIndex];
+    const params = declarations[configIndex];
+    const expression = `${build.expression};${parts.expression};${params.expression}`;
+    const names = new Set([...expression.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((entry) => entry[1]));
+    const helpers = [];
+    for (let pass = 0; pass < 8; pass++) {
+      let changed = false;
+      for (const name of [...names]) {
+        if (helpers.some((source) => new RegExp(`function\\s+${name}\\s*\\(`).test(source))) continue;
+        const source = functionSource(chunk, name);
+        if (!source) continue;
+        helpers.push(source);
+        for (const reference of source.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+          if (!names.has(reference[1])) {
+            names.add(reference[1]);
+            changed = true;
+          }
         }
       }
+      if (helpers.some((source) => /^function\s+[A-Za-z_$][\w$]*\s*\(\)\s*\{const\s+e=\[/.test(source))) break;
+      if (!changed) break;
     }
-    if (helpers.some((source) => /^function\s+[A-Za-z_$][\w$]*\s*\(\)\s*\{const\s+e=\[/.test(source))) break;
-    if (!changed) break;
+    const tableSource = helpers.find((source) => /^function\s+[A-Za-z_$][\w$]*\s*\(\)\s*\{const\s+e=\[/.test(source)) ?? null;
+    const tableName = tableSource?.match(/^function\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ?? null;
+    const tableInitEnd = tableName ? chunk.lastIndexOf(`)(${tableName},`, declarationAt) : -1;
+    const tableInitStart = tableInitEnd === -1 ? -1 : findOpeningParen(chunk, tableInitEnd);
+    const tableInit = tableInitStart === -1 || tableInitEnd === -1 ? "" : chunk.slice(tableInitStart, chunk.indexOf(";", tableInitEnd) + 1);
+    if (!tableSource || !tableInit) continue;
+    const source = `${tableSource}\n${tableInit}\n${helpers.filter((helper) => !helper.startsWith(`function ${tableName}`)).join("\n")}\nreturn { buildId: (${build.expression}), maskParts: (${parts.expression}), params: (${params.expression}) };`;
+    const out = Function(source)();
+    const config = out?.params;
+    if (!out?.buildId || !Array.isArray(out.maskParts) || out.maskParts.length < 4 || !config || typeof config !== "object") continue;
+    const numeric = ["saltMul", "saltAdd", "fragMul", "fragAdd"];
+    if (numeric.some((key) => !Number.isFinite(Number(config[key])))) continue;
+    if (!Array.isArray(config.parts) || !config.parts.length || typeof config.bootPrefix !== "string" || typeof config.join !== "string") continue;
+    return {
+      scheme: "fragments",
+      buildId: String(out.buildId),
+      maskParts: out.maskParts.slice(0, 4).map(String),
+      saltMul: Number(config.saltMul),
+      saltAdd: Number(config.saltAdd),
+      fragMul: Number(config.fragMul),
+      fragAdd: Number(config.fragAdd),
+      bootPrefix: config.bootPrefix,
+      join: config.join,
+      parts: config.parts.map(String),
+      omitEmptyLane: Boolean(config.omitEmptyLane)
+    };
   }
-  const tableSource = helpers.find((source) => /^function\s+[A-Za-z_$][\w$]*\s*\(\)\s*\{const\s+e=\[/.test(source)) ?? null;
-  const tableName = tableSource?.match(/^function\s+([A-Za-z_$][\w$]*)\s*\(/)?.[1] ?? null;
-  const tableInitEnd = tableName ? chunk.lastIndexOf(`)(${tableName},`, declarationAt) : -1;
-  const tableInitStart = tableInitEnd === -1 ? -1 : findOpeningParen(chunk, tableInitEnd);
-  const tableInit = tableInitStart === -1 || tableInitEnd === -1 ? "" : chunk.slice(tableInitStart, chunk.indexOf(";", tableInitEnd) + 1);
-  if (!tableSource || !tableInit) return null;
-  const source = `${tableSource}\n${tableInit}\n${helpers.filter((source) => !source.startsWith(`function ${tableName}`)).join("\n")}\nreturn { buildId: (${buildExpr}), maskParts: (${partsExpr}), params: (${configExpr}) };`;
-  const out = Function(source)();
-  const params = out?.params;
-  if (!out?.buildId || !Array.isArray(out.maskParts) || out.maskParts.length < 4 || !params || typeof params !== "object") return null;
-  const numeric = ["saltMul", "saltAdd", "fragMul", "fragAdd"];
-  if (numeric.some((key) => !Number.isFinite(Number(params[key])))) return null;
-  if (!Array.isArray(params.parts) || !params.parts.length || typeof params.bootPrefix !== "string" || typeof params.join !== "string") return null;
-  return {
-    scheme: "fragments",
-    buildId: String(out.buildId),
-    maskParts: out.maskParts.slice(0, 4).map(String),
-    saltMul: Number(params.saltMul),
-    saltAdd: Number(params.saltAdd),
-    fragMul: Number(params.fragMul),
-    fragAdd: Number(params.fragAdd),
-    bootPrefix: params.bootPrefix,
-    join: params.join,
-    parts: params.parts.map(String),
-    omitEmptyLane: Boolean(params.omitEmptyLane)
-  };
+  return null;
 }
 __name(evalFragmentCryptoChunk, "evalFragmentCryptoChunk");
 
@@ -343,7 +496,7 @@ async function discoverCryptoConfig(force = false) {
         if (!/client-crypto|x-aa-boot|aaReq|partB/.test(item.text)) continue;
         const config = evalCryptoChunk(item.text);
         if (config) {
-          cryptoConfigCache = { ...config, expiresAt: Date.now() + 1800000 };
+          cryptoConfigCache = { ...config, sourceUrl: item.url, expiresAt: Date.now() + 1800000 };
           return cryptoConfigCache;
         }
       }
@@ -355,6 +508,58 @@ async function discoverCryptoConfig(force = false) {
   }
 }
 __name(discoverCryptoConfig, "discoverCryptoConfig");
+
+async function discoverEpisodeQuery(force = false) {
+  const config = await discoverCryptoConfig(force);
+  if (!force && episodeQueryCache?.buildId === config.buildId && Date.now() < episodeQueryCache.expiresAt) return episodeQueryCache.query;
+  const inspect = (text) => {
+    const query = evalEpisodeQueryChunk(text);
+    if (query) {
+      episodeQueryCache = { buildId: config.buildId, query, expiresAt: config.expiresAt };
+      return query;
+    }
+    return null;
+  };
+  if (config.sourceUrl) {
+    try {
+      const query = inspect(await fetchText(config.sourceUrl, { Accept: "application/javascript,*/*" }));
+      if (query) return query;
+    } catch {}
+  }
+  const html = await fetchText(`${REFERER}/`, { Accept: "text/html,*/*" });
+  const appUrl = html.match(/(?:import\(|src=)["']([^"']+\/_app\/immutable\/entry\/app\.[^"']+\.js)["']/)?.[1];
+  if (!appUrl) return episodeQuery();
+  const queue = [appUrl];
+  const seen = new Set();
+  while (queue.length && seen.size < DISCOVERY_LIMIT) {
+    const batch = queue.splice(0, DISCOVERY_CONCURRENCY).filter((url) => {
+      if (seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    });
+    const chunks = await Promise.all(batch.map(async (url) => {
+      try {
+        return { url, text: await fetchText(url, { Accept: "application/javascript,*/*" }) };
+      } catch {
+        return null;
+      }
+    }));
+    for (const item of chunks.filter(Boolean)) {
+      const query = inspect(item.text);
+      if (query) return query;
+      const imported = [
+        ...item.text.matchAll(/(?:import\(|from\s*)["']([^"']+\.js)["']/g),
+        ...item.text.matchAll(/["'](\.\.\/(?:chunks|nodes)\/[^"'\n]+\.js)["']/g)
+      ].map((match) => match[1]).filter((value) => value.startsWith(".") || value.startsWith("/"));
+      for (const value of imported) {
+        const next = new URL(value, item.url).toString();
+        if (!seen.has(next)) queue.push(next);
+      }
+    }
+  }
+  return episodeQuery();
+}
+__name(discoverEpisodeQuery, "discoverEpisodeQuery");
 
 function buildMaskSeed(buildId) {
   const n = String(buildId || "");
@@ -641,15 +846,9 @@ async function apiPost(query, variables, options = {}) {
   const body = options.extensions ? { query, variables, extensions: options.extensions } : { query, variables };
   const res = await sessionFetch(API_URL, {
     method: "POST",
-    headers: {
-      "Referer": `${REFERER}/`,
-      "Origin": REFERER,
+    headers: apiHeaders(config.buildId, {
       "Content-Type": "application/json",
-      "x-build-id": config.buildId,
-      "Sec-Fetch-Dest": "empty",
-      "Sec-Fetch-Mode": "cors",
-      "Sec-Fetch-Site": "same-site"
-    },
+    }),
     body: JSON.stringify(body)
   });
   const raw = await res.text();
@@ -672,9 +871,8 @@ async function apiPost(query, variables, options = {}) {
 __name(apiPost, "apiPost");
 
 async function apiEpisode(query, variables, options = {}) {
-  const { force = false, captchaRetry = 0, captcha = null, hashIndex = 0, postFallback = false } = options;
-  const hashes = [...new Set([EPISODE_QUERY_HASH, sha256Hex(query)].filter(Boolean))];
-  const hash = hashes[Math.min(hashIndex, hashes.length - 1)];
+  const { force = false, captchaRetry = 0, captcha = null, postFallback = false } = options;
+  const hash = sha256Hex(query);
   const { key, epoch, buildId } = await getLaneKey(CONTENT_LANE, force);
   const extensions = {
     persistedQuery: { version: 1, sha256Hash: hash },
@@ -688,14 +886,7 @@ async function apiEpisode(query, variables, options = {}) {
   }
   const url = `${API_URL}?variables=${encodeURIComponent(JSON.stringify(variables))}&extensions=${encodeURIComponent(JSON.stringify(extensions))}`;
   const res = await sessionFetch(url, {
-    headers: {
-      "Referer": `${REFERER}/`,
-      "Origin": REFERER,
-      "x-build-id": buildId,
-      "Sec-Fetch-Dest": "empty",
-      "Sec-Fetch-Mode": "cors",
-      "Sec-Fetch-Site": "same-site"
-    }
+    headers: apiHeaders(buildId)
   });
   const raw = await res.text();
   if (!res.ok) {
@@ -706,14 +897,6 @@ async function apiEpisode(query, variables, options = {}) {
   const json = JSON.parse(raw);
   const messages = json.errors?.map((e) => e.message || e.extensions?.code).filter(Boolean) || [];
   if (messages.includes("PersistedQueryNotFound") || messages.some((m) => /Context creation failed/i.test(m))) {
-    if (hashIndex + 1 < hashes.length) {
-      return apiEpisode(query, variables, { force: true, captchaRetry, captcha, hashIndex: hashIndex + 1, postFallback });
-    }
-    if (hash === EPISODE_QUERY_HASH) {
-      const err = new Error(messages.join(" · "));
-      err.rawBody = raw;
-      throw err;
-    }
     const posted = await apiPost(query, variables, { buildId, extensions });
     return posted?.tobeparsed ? decryptTobeparsed(posted.tobeparsed, key) : posted;
   }
@@ -734,7 +917,7 @@ async function apiEpisode(query, variables, options = {}) {
     }
     if (captchaRetry < 5) {
       await sleep(1500 + captchaRetry * 1200);
-      return apiEpisode(query, variables, { force: true, captchaRetry: captchaRetry + 1, hashIndex, postFallback: true });
+      return apiEpisode(query, variables, { force: true, captchaRetry: captchaRetry + 1, postFallback: true });
     }
     const err = new Error("MKissa requested captcha");
     err.code = "NEED_CAPTCHA";
@@ -742,7 +925,7 @@ async function apiEpisode(query, variables, options = {}) {
     throw err;
   }
   if (messages.some((m) => /^AA_CRYPTO_/.test(m))) {
-    if (!force) return apiEpisode(query, variables, { force: true, captchaRetry, captcha, hashIndex, postFallback });
+    if (!force) return apiEpisode(query, variables, { force: true, captchaRetry, captcha, postFallback });
     const err = new Error(messages.join(" · "));
     err.rawBody = raw;
     throw err;
@@ -773,7 +956,8 @@ async function searchMkissa(query, mode = "sub") {
 __name(searchMkissa, "searchMkissa");
 
 async function getEpisodeSources(showId, epNum, audio = "sub", captcha = null) {
-  const data = await apiEpisode(episodeQuery(), { showId, translationType: audio, episodeString: String(epNum) }, { captcha });
+  const query = await discoverEpisodeQuery();
+  const data = await apiEpisode(query, { showId, translationType: audio, episodeString: String(epNum) }, { captcha });
   return data?.episode ?? null;
 }
 __name(getEpisodeSources, "getEpisodeSources");
