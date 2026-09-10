@@ -107,7 +107,7 @@ async function resolveSeries(anilistId, ctx = {}) {
   const media = ctx.media ?? await getMedia(anilistId);
   const titles = buildTitles(media, ctx.anizip);
   const candidates = await findTopSlugs(titles, search);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const offset = await getPrequelOffset(anilistId).catch(() => 0);
   const selected = await selectSeries(candidates, scrapeSeries, expected, media?.status, offset);
   if (!selected) throw new Error(`AniNeko match not found for AniList ${anilistId}`);
@@ -145,7 +145,7 @@ export async function getEpisodes(anilistId, ctx = {}) {
   const localCtx = { ...ctx, media };
   const series = await resolveSeries(anilistId, localCtx);
   const episodes = await scrapeSeries(series.slug);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   return {
     meta: {
       id: series.slug,

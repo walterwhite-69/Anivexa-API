@@ -197,7 +197,7 @@ async function resolveSeries(anilistId, ctx = {}) {
   if (isFresh(cached)) return cached.data;
   const media = ctx.media ?? await getMedia(anilistId);
   const titles = buildTitles(media, ctx.anizip);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const discovered = new Map();
   await Promise.all(searchQueries(titles).map(async (query) => {
     try {
@@ -412,7 +412,7 @@ async function seriesEpisodes(anilistId, ctx = {}) {
     resolveSeries(anilistId, localCtx),
     getPrequelOffset(anilistId).catch(() => 0),
   ]);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const limit = expected ? expected + offset : Infinity;
   const maxPages = Number.isFinite(ctx.maxPages) ? Math.max(1, ctx.maxPages) : Infinity;
   const rawEpisodes = await scrapeSeries(series.slug, limit, maxPages);

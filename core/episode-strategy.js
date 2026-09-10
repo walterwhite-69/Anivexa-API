@@ -1,6 +1,6 @@
 import {
   getAsync, setAsync, isFresh, needsRefresh,
-  episodeTTL, jikanPageTTL,
+  episodeTTL,
 } from "./smartcache.js";
 import { getEpisodes as mkissaEpisodes } from "../providers/mkissa.js";
 import { getEpisodes as reanimeEpisodes } from "../providers/reanime.js";
@@ -16,9 +16,7 @@ import { getEpisodes as anibdEpisodes   } from "../providers/anibd.js";
 import { getEpisodes as senshiEpisodes } from "../providers/senshi.js";
 import { getEpisodes as kaaEpisodes    } from "../providers/kickassanime.js";
 import { getEpisodes as animedunyaEpisodes } from "../providers/animedunya.js";
-const JIKAN = "https://api.jikan.moe/v4";
-const UA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
+import { getEpisodes as animeonsenEpisodes } from "../providers/animeonsen.js";
 const inflight  = new Map();
 const bgRunning = new Set();
 
@@ -36,106 +34,6 @@ function bg(key, fn) {
     .then(fn)
     .catch(e => console.error(`[bg:${key}]`, e.message))
     .finally(() => bgRunning.delete(key));
-}
-
-async function jikanPage(malId, pageNum, retries = 3) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(
-      `${JIKAN}/anime/${malId}/episodes?page=${pageNum}`,
-      { headers: { "User-Agent": UA, Accept: "application/json" } }
-    ).catch(() => null);
-
-    if (!res) return null;
-    if (res.status === 429) {
-      const wait = (parseInt(res.headers.get("Retry-After") ?? "1") || 1) * 1000
-                 + attempt * 600;
-      if (attempt < retries) { await new Promise(r => setTimeout(r, wait)); continue; }
-      return null;
-    }
-    if (!res.ok) return null;
-    return res.json();
-  }
-  return null;
-}
-
-export function fetchAllJikanWithCache(malId, status) {
-  return dedupe(`jikan:${malId}`, () => _jikanAll(malId, status));
-}
-
-async function _jikanAll(malId, status) {
-  const metaKey = `jm:${malId}`;
-  const meta    = await getAsync(metaKey);
-
-  const isFinished      = status === "FINISHED";
-  const mustCheckTotal  = !isFinished && (!meta || needsRefresh(meta));
-  let   lastPage        = meta?.data?.lastPage ?? null;
-
-  if (mustCheckTotal || !lastPage) {
-    const p1 = await jikanPage(malId, 1);
-
-    if (!p1 && !lastPage) return [];
-    if (!p1 && lastPage)  return _buildPages(malId, lastPage, status);
-
-    const newLast  = p1.pagination?.last_visible_page ?? 1;
-    const isP1Last = newLast === 1;
-
-    const [p1ttl, p1ref] = jikanPageTTL(isP1Last, status);
-    await setAsync(`jp:${malId}:1`, p1.data ?? [], p1ttl, p1ref);
-
-    if (lastPage && newLast > lastPage) {
-      const [stableTtl] = jikanPageTTL(false, "FINISHED");
-      const oldLastEntry = await getAsync(`jp:${malId}:${lastPage}`);
-      if (oldLastEntry) await setAsync(`jp:${malId}:${lastPage}`, oldLastEntry.data, stableTtl, Infinity);
-
-      await Promise.all(
-        Array.from({ length: newLast - lastPage }, (_, i) => {
-          const pn     = lastPage + 1 + i;
-          const isLast = pn === newLast;
-          return jikanPage(malId, pn).then(pd => {
-            const [t, r] = jikanPageTTL(isLast, status);
-            return setAsync(`jp:${malId}:${pn}`, pd?.data ?? [], t, r);
-          });
-        })
-      );
-    }
-
-    const [mttl, mref] = episodeTTL(status);
-    await setAsync(metaKey, { lastPage: newLast }, mttl, mref);
-    lastPage = newLast;
-  }
-
-  return _buildPages(malId, lastPage, status);
-}
-
-async function _buildPages(malId, lastPage, status) {
-  const pages = await Promise.all(
-    Array.from({ length: lastPage }, (_, i) => i + 1).map(async pn => {
-      const key    = `jp:${malId}:${pn}`;
-      const isLast = pn === lastPage;
-      const entry  = await getAsync(key);
-
-      if (isFresh(entry)) {
-        if (isLast && status === "RELEASING" && needsRefresh(entry)) {
-          bg(key, async () => {
-            const pd = await jikanPage(malId, pn);
-            if (pd) {
-              const [t, r] = jikanPageTTL(true, status);
-              await setAsync(key, pd.data ?? [], t, r);
-            }
-          });
-        }
-        return entry.data;
-      }
-
-      const pd   = await jikanPage(malId, pn);
-      const data = pd?.data ?? [];
-      const [t, r] = jikanPageTTL(isLast, status);
-      await setAsync(key, data, t, r);
-      return data;
-    })
-  );
-
-  return pages.flat();
 }
 
 async function withCache(key, status, fetchFn) {
@@ -193,6 +91,7 @@ const PROVIDER_ALIASES = {
   senshi: "senshi",
   kaa:    "kaa",
   animedunya: "animedunya",
+  animeonsen: "animeonsen",
 };
 
 export function resolveProviders(rawNames) {
@@ -222,18 +121,13 @@ function providerFns(anilistId, status, ctx) {
     senshi: () => withCache(`epv:senshi:${anilistId}`,  status, () => senshiEpisodes(anilistId, ctx)),
     kaa:    () => withCache(`epv:kaa:${anilistId}`,     status, () => kaaEpisodes(anilistId, ctx)),
     animedunya: () => withCache(`epv:animedunya:${anilistId}`, status, () => animedunyaEpisodes(anilistId, ctx)),
+    animeonsen: () => withCache(`epv:animeonsen:${anilistId}`, status, () => animeonsenEpisodes(anilistId, ctx)),
   };
 }
 
 export async function buildFilteredEpisodesWithCache(anilistId, providers, media, anizip) {
   const status = media?.status ?? "RELEASING";
-  const malId  = media?.idMal  ?? null;
-
-  const jikanEps = malId
-    ? await fetchAllJikanWithCache(malId, status).catch(() => null)
-    : null;
-
-  const ctx  = { media, anizip, jikanEps, maxPages: undefined };
+  const ctx  = { media, anizip, maxPages: undefined };
   const fns  = providerFns(anilistId, status, ctx);
 
   const pairs = await Promise.all(
@@ -248,15 +142,9 @@ export async function buildFilteredEpisodesWithCache(anilistId, providers, media
 
 export async function buildEpisodesWithCache(anilistId, media, anizip) {
   const status = media?.status ?? "RELEASING";
-  const malId  = media?.idMal  ?? null;
+  const ctx = { media, anizip, maxPages: undefined };
 
-  const jikanEps = malId
-    ? await fetchAllJikanWithCache(malId, status).catch(() => null)
-    : null;
-
-  const ctx = { media, anizip, jikanEps, maxPages: undefined };
-
-  const [mkissa, reanime, anikoto, animegg, anineko, anidbapp, dhive, animenosub, anizone, aniwaves, anibd, senshi, kaa, animedunya] = await Promise.all([
+  const [mkissa, reanime, anikoto, animegg, anineko, anidbapp, dhive, animenosub, anizone, aniwaves, anibd, senshi, kaa, animedunya, animeonsen] = await Promise.all([
     safe("mkissa",     () => withCache(`epv:mkissa:${anilistId}`,     status, () => mkissaEpisodes(anilistId, ctx))),
     safe("reanime",    () => withCache(`epv:reanime:${anilistId}`,    status, () => reanimeEpisodes(anilistId, ctx))),
     safe("anikoto",    () => withCache(`epv:anikoto:${anilistId}`,    status, () => anikotoEpisodes(anilistId, ctx))),
@@ -271,6 +159,7 @@ export async function buildEpisodesWithCache(anilistId, media, anizip) {
     safe("senshi",     () => withCache(`epv:senshi:${anilistId}`,     status, () => senshiEpisodes(anilistId, ctx))),
     safe("kaa",        () => withCache(`epv:kaa:${anilistId}`,        status, () => kaaEpisodes(anilistId, ctx))),
     safe("animedunya", () => withCache(`epv:animedunya:${anilistId}`, status, () => animedunyaEpisodes(anilistId, ctx))),
+    safe("animeonsen", () => withCache(`epv:animeonsen:${anilistId}`, status, () => animeonsenEpisodes(anilistId, ctx))),
   ]);
 
   return {
@@ -288,5 +177,6 @@ export async function buildEpisodesWithCache(anilistId, media, anizip) {
     senshi:      senshi.ok      ? senshi.data      : { error: senshi.error,      stack: senshi.stack },
     kaa:         kaa.ok         ? kaa.data         : { error: kaa.error,         stack: kaa.stack },
     animedunya:  animedunya.ok  ? animedunya.data  : { error: animedunya.error,  stack: animedunya.stack },
+    animeonsen:  animeonsen.ok  ? animeonsen.data  : { error: animeonsen.error,  stack: animeonsen.stack },
   };
 }

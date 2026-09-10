@@ -298,7 +298,7 @@ export async function getEpisodes(anilistId, ctx = {}) {
   const localCtx = { ...ctx, media };
   const series = await resolveSeries(anilistId, localCtx);
   const episodes = await fetchProviderEpisodes(series.siteId);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const offset = inferOffset(episodes, expected);
   const sampleLanguages = episodes[0]?.id ? await fetchLanguages(episodes[0].id, series.slug) : [];
   const availability = {
@@ -326,7 +326,7 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   const series = await resolveSeries(anilistId, ctx);
   const episodes = await fetchProviderEpisodes(series.siteId);
   const media = ctx.media ?? await getMedia(anilistId).catch(() => null);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const offset = inferOffset(episodes, expected);
   const providerEp = Number(epNum) + offset;
   const episode = episodes.find((e) => Number(e.number) === providerEp);

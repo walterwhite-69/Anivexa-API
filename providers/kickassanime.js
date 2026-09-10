@@ -210,7 +210,7 @@ export async function getEpisodes(anilistId, ctx = {}) {
   const epMap    = await buildEpMap(series.slug, showInfo);
   if (!epMap.length) throw new Error(`KAA: no episodes found for AniList ${anilistId} (slug: ${series.slug})`);
 
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const sub      = [];
   const dub      = [];
 

@@ -14,6 +14,7 @@ import anibdHandler                from "./providers/anibd.js";
 import senshiHandler               from "./providers/senshi.js";
 import kaaHandler                  from "./providers/kickassanime.js";
 import animedunyaHandler           from "./providers/animedunya.js";
+import animeonsenHandler           from "./providers/animeonsen.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
 import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED } from "./core/smartcache.js";
@@ -266,6 +267,15 @@ export default {
       );
     }
 
+    m = path.match(/^\/watch\/animeonsen\/(\d+)\/(sub|dub)\/animeonsen-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:animeonsen:${id}:${audio}:${ep}`,
+        () => animeonsenHandler.fetch(request)
+      );
+    }
+
     m = path.match(/^\/stream\/2dhive\/(\d+)\/(sub|dub)\/(\d+)\/?$/);
     if (m) return dhiveHandler.fetch(request);
 
@@ -290,6 +300,7 @@ export default {
         "senshi",
         "kaa",
         "animedunya",
+        "animeonsen",
       ],
       routes: [
         "/map/:anilistId",
@@ -312,6 +323,7 @@ export default {
         "/watch/senshi/:id/sub|dub/senshi-:ep",
         "/watch/kaa/:id/sub|dub/kaa-:ep",
         "/watch/animedunya/:id/sub|dub/animedunya-:ep",
+        "/watch/animeonsen/:id/sub|dub/animeonsen-:ep",
       ],
     });
   },

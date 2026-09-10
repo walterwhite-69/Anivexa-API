@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Anivexa API — Docs</title>
-  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 14 providers, exact-match identity resolution via AniList IDs."/>
+  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 15 providers, exact-match identity resolution via AniList IDs."/>
   <link rel="icon" type="image/svg+xml" href="logo.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -68,6 +68,7 @@
         <a class="nav-item" href="#watch-senshi"><span class="method">GET</span>Senshi</a>
         <a class="nav-item" href="#watch-kaa"><span class="method">GET</span>KickAssAnime</a>
         <a class="nav-item" href="#watch-animedunya"><span class="method">GET</span>AnimeDunya</a>
+        <a class="nav-item" href="#watch-animeonsen"><span class="method">GET</span>AnimeOnsen</a>
       </div>
     </div>
   </nav>
@@ -79,7 +80,7 @@
     <section class="section section-hero" id="overview">
       <img src="logo.svg" alt="Anivexa" class="hero-logo"/>
       <h1>Anivexa API</h1>
-      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 14 providers using a single AniList ID — no scraping, no guessing, exact-match identity resolution.</p>
+      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 15 providers using a single AniList ID — no scraping, no guessing, exact-match identity resolution.</p>
       <div class="callout">
         <span class="callout-icon">💡</span>
         <span>All endpoints are read-only. No authentication required. All responses are JSON with CORS headers included.</span>
@@ -100,7 +101,7 @@
 
     <section class="section" id="providers-ref">
       <h2>Providers</h2>
-      <p>Fourteen providers are available. Each uses exact-match identity resolution via AniList or MAL IDs — no blind fuzzy matching.</p>
+      <p>Fifteen providers are available. Each uses exact-match identity resolution via AniList or MAL IDs — no blind fuzzy matching.</p>
       <div class="provider-grid">
         <div class="provider-card" style="--i:0"><div class="provider-name">mkissa</div><div class="provider-meta">MKissa</div></div>
         <div class="provider-card" style="--i:1"><div class="provider-name">reanime</div><div class="provider-meta">Reanime</div></div>
@@ -116,6 +117,7 @@
         <div class="provider-card" style="--i:11"><div class="provider-name">senshi</div><div class="provider-meta">Senshi</div></div>
         <div class="provider-card" style="--i:12"><div class="provider-name">kaa</div><div class="provider-meta">KickAssAnime</div></div>
         <div class="provider-card" style="--i:13"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
+        <div class="provider-card" style="--i:14"><div class="provider-name">animeonsen</div><div class="provider-meta">AnimeOnsen</div></div>
       </div>
     </section>
 
@@ -637,6 +639,43 @@
       <span class="p">],</span>
       <span class="n">"priority"</span><span class="p">:</span>  <span class="b">5</span><span class="p">,</span>
       <span class="n">"isActive"</span><span class="p">:</span>  <span class="b">true</span>
+    <span class="p">}</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+      </div>
+    </section>
+
+    <section class="section" id="watch-animeonsen">
+      <h2>AnimeOnsen</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/animeonsen/<span class="param">:id</span>/<span class="param">sub</span>/animeonsen-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/animeonsen/16498/sub/animeonsen-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Returns a DASH manifest and subtitle tracks. Apply each returned authorization header to the manifest and media-segment requests.</p>
+          <table class="params-table">
+            <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="param-name">:id</td><td class="param-type">integer</td><td class="param-desc">AniList media ID</td></tr>
+              <tr><td class="param-name">sub</td><td class="param-type">string</td><td class="param-desc">AnimeOnsen provides subtitled streams only</td></tr>
+              <tr><td class="param-name">:ep</td><td class="param-type">integer</td><td class="param-desc">Episode number</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-label">Response</div>
+        <pre><code><span class="p">{</span>
+  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">16498</span><span class="p">,</span>
+  <span class="n">"episode"</span><span class="p">:</span> <span class="b">1</span><span class="p">,</span>
+  <span class="n">"audio"</span><span class="p">:</span> <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"streams"</span><span class="p">: [</span>
+    <span class="p">{</span>
+      <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://cdn.animeonsen.xyz/video/mp4-dash/.../manifest.mpd"</span><span class="p">,</span>
+      <span class="n">"type"</span><span class="p">:</span> <span class="s">"dash"</span><span class="p">,</span>
+      <span class="n">"server"</span><span class="p">:</span> <span class="s">"AnimeOnsen"</span><span class="p">,</span>
+      <span class="n">"headers"</span><span class="p">:</span> <span class="p">{</span> <span class="n">"Authorization"</span><span class="p">:</span> <span class="s">"Bearer &lt;session-token&gt;"</span> <span class="p">},</span>
+      <span class="n">"subtitles"</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://api.animeonsen.xyz/v4/subtitles/..."</span> <span class="p">}</span> <span class="p">]</span>
     <span class="p">}</span>
   <span class="p">]</span>
 <span class="p">}</span></code></pre>

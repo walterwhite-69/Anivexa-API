@@ -91,7 +91,7 @@ function buildEpisodeLists(anilistId, groups, ctx, expected) {
 export async function getEpisodes(anilistId, ctx = {}) {
   const groups = await fetchServers(anilistId);
   if (!groups.length) throw new Error(`anibd: no episodes found for AniList ${anilistId}`);
-  const expected = expectedCount(ctx.media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(ctx.media, ctx.anizip);
   return {
     meta: {
       id: String(anilistId),

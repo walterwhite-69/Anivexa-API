@@ -4,13 +4,7 @@ var resolved = new Map();
 var inflight = new Map();
 var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 var ARM = "https://arm.haglund.dev/api/v2/ids";
-var JIKAN = "https://api.jikan.moe/v4";
-var STATUS_MAP = {
-  "Currently Airing": "RELEASING",
-  "Finished Airing": "FINISHED",
-  "Not yet aired": "NOT_YET_RELEASED",
-  "On Hiatus": "HIATUS"
-};
+var ANILIST_WEB = "https://anilist.co";
 
 const AL_STATUS_MAP = {
   RELEASING: "RELEASING",
@@ -20,16 +14,55 @@ const AL_STATUS_MAP = {
   HIATUS: "HIATUS",
 };
 
+function cookiesFromHeaders(headers) {
+  const values = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [headers.get("set-cookie")].filter(Boolean);
+  return values.map((value) => String(value).split(";")[0]).join("; ");
+}
+
+async function mediaFromResponse(res) {
+  if (!res?.ok) return null;
+  try {
+    const json = await res.json();
+    return json.data?.Media ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFromAniListWeb(body) {
+  const home = await fetch(`${ANILIST_WEB}/`, {
+    headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+  }).catch(() => null);
+  if (!home?.ok) return null;
+  const html = await home.text();
+  const token = html.match(/window\.al_token\s*=\s*"([^"]+)"/)?.[1];
+  const cookie = cookiesFromHeaders(home.headers);
+  if (!token || !cookie) return null;
+  const res = await fetch(`${ANILIST_WEB}/graphql`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "User-Agent": UA,
+      Referer: `${ANILIST_WEB}/home`,
+      "x-csrf-token": token,
+      schema: "default",
+      Cookie: cookie,
+    },
+    body,
+  }).catch(() => null);
+  return mediaFromResponse(res);
+}
+
 async function fetchFromAniList(id) {
   const fullQuery = `query($id:Int){Media(id:$id,type:ANIME){id title{english romaji native} status format episodes seasonYear startDate{year} synonyms nextAiringEpisode{episode airingAt timeUntilAiring}}}`;
+  const body = JSON.stringify({ query: fullQuery, variables: { id } });
   const res = await fetch("https://graphql.anilist.co", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": UA },
-    body: JSON.stringify({ query: fullQuery, variables: { id } }),
+    body,
   }).catch(() => null);
-  if (!res || !res.ok) return null;
-  const json = await res.json();
-  return json.data?.Media ?? null;
+  return await mediaFromResponse(res) ?? fetchFromAniListWeb(body);
 }
 
 async function getMedia(anilistId) {
@@ -44,94 +77,23 @@ async function getMedia(anilistId) {
       return r.json();
     }).catch(() => null);
 
-    const malId = arm?.myanimelist ?? null;
-
-    if (!malId) {
-      const al = await fetchFromAniList(id);
-      if (!al) throw new Error(`No data found for AniList ID ${id}`);
-      const media = {
-        id,
-        idMal: null,
-        title: {
-          english: al.title?.english ?? null,
-          romaji: al.title?.romaji ?? null,
-          native: al.title?.native ?? null,
-        },
-        status: AL_STATUS_MAP[al.status] ?? "RELEASING",
-        format: al.format ?? null,
-        episodes: al.episodes ?? null,
-        seasonYear: al.seasonYear ?? null,
-        startDate: al.startDate ?? null,
-        nextAiringEpisode: al.nextAiringEpisode ?? null,
-        synonyms: Array.isArray(al.synonyms) ? al.synonyms : [],
-      };
-      resolved.set(id, media);
-      inflight.delete(id);
-      return media;
-    }
-
-    const al = await fetchFromAniList(id).catch(() => null);
-    let jikan = null;
-    for (let attempt = 0; attempt <= 4; attempt++) {
-      const r = await fetch(`${JIKAN}/anime/${malId}`, { headers: { "User-Agent": UA, Accept: "application/json" } });
-      if (r.status === 429) {
-        const wait = (parseInt(r.headers.get("Retry-After") ?? "1") || 1) * 1e3 + attempt * 500;
-        if (attempt < 4) {
-          await new Promise((res) => setTimeout(res, wait));
-          continue;
-        }
-        throw new Error(`Jikan 429 for MAL ID ${malId} (exhausted retries)`);
-      }
-      // On 5xx / network errors, fall back to AniList-only data if available rather than hard-failing.
-      if (!r.ok) {
-        if (al) break; // exit loop, jikan stays null, fall through to AniList fallback below
-        throw new Error(`Jikan ${r.status}`);
-      }
-      jikan = await r.json();
-      break;
-    }
-    const d = jikan?.data ?? null;
-    // If Jikan was unavailable but we have AniList data, build a partial media object from AniList only.
-    if (!d && al) {
-      const media = {
-        id,
-        idMal: malId,
-        title: {
-          english: al.title?.english ?? null,
-          romaji: al.title?.romaji ?? null,
-          native: al.title?.native ?? null,
-        },
-        status: AL_STATUS_MAP[al.status] ?? "RELEASING",
-        format: al.format ?? null,
-        episodes: al.episodes ?? null,
-        seasonYear: al.seasonYear ?? null,
-        startDate: al.startDate ?? null,
-        nextAiringEpisode: al.nextAiringEpisode ?? null,
-        synonyms: Array.isArray(al.synonyms) ? al.synonyms : [],
-      };
-      resolved.set(id, media);
-      inflight.delete(id);
-      return media;
-    }
-    if (!d) throw new Error(`Jikan returned no data for MAL ID ${malId}`);
+    const al = await fetchFromAniList(id);
+    if (!al) throw new Error(`No data found for AniList ID ${id}`);
     const media = {
       id,
-      idMal: malId,
+      idMal: arm?.myanimelist ?? null,
       title: {
-        english: al?.title?.english ?? d.title_english ?? null,
-        romaji: al?.title?.romaji ?? d.title ?? null,
-        native: al?.title?.native ?? d.title_japanese ?? null,
+        english: al.title?.english ?? null,
+        romaji: al.title?.romaji ?? null,
+        native: al.title?.native ?? null,
       },
-      status: AL_STATUS_MAP[al?.status] ?? STATUS_MAP[d.status] ?? "RELEASING",
-      format: al?.format ?? d.type ?? null,
-      episodes: al?.episodes ?? d.episodes ?? null,
-      seasonYear: al?.seasonYear ?? d.year ?? null,
-      startDate: al?.startDate ?? (d.aired?.from ? { year: new Date(d.aired.from).getFullYear() } : null),
-      nextAiringEpisode: al?.nextAiringEpisode ?? null,
-      synonyms: [
-        ...(d.titles?.map((t) => t.title).filter(Boolean) ?? []),
-        ...(Array.isArray(al?.synonyms) ? al.synonyms : []),
-      ],
+      status: AL_STATUS_MAP[al.status] ?? "RELEASING",
+      format: al.format ?? null,
+      episodes: al.episodes ?? null,
+      seasonYear: al.seasonYear ?? null,
+      startDate: al.startDate ?? null,
+      nextAiringEpisode: al.nextAiringEpisode ?? null,
+      synonyms: Array.isArray(al.synonyms) ? al.synonyms : [],
     };
     resolved.set(id, media);
     inflight.delete(id);

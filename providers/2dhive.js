@@ -102,7 +102,7 @@ export async function getEpisodes(anilistId, ctx = {}) {
 
   const props = await fetchEpisodePage(malId, epNums[0]);
   const hasDub = Boolean(props.prefetchedHls?.dub?.content) || (Array.isArray(props.servers) && props.servers.some((s) => s.dub));
-  const expected = expectedCount(ctx.media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(ctx.media, ctx.anizip);
 
   const sub = [], dub = [];
   for (const num of epNums) {

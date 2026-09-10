@@ -41,7 +41,8 @@ function hasCurrentProviders(data) {
   return data &&
     Object.prototype.hasOwnProperty.call(data, "anidbapp") &&
     Object.prototype.hasOwnProperty.call(data, "anizone") &&
-    Object.prototype.hasOwnProperty.call(data, "aniwaves");
+    Object.prototype.hasOwnProperty.call(data, "aniwaves") &&
+    Object.prototype.hasOwnProperty.call(data, "animeonsen");
 }
 
 function latestEpisodeFromAniZip(anizip) {
@@ -58,7 +59,7 @@ function resolveShared(anilistId, freshMedia = false) {
 }
 
 async function clearProviderCache(anilistId, media) {
-  for (const p of ["pahe", "manga", "reanime", "anikoto", "animegg", "anineko", "anidbapp", "2dhive", "anizone", "aniwaves"]) {
+  for (const p of ["pahe", "manga", "reanime", "anikoto", "animegg", "anineko", "anidbapp", "2dhive", "anizone", "aniwaves", "animeonsen"]) {
     await delAsync(`epv:${p}:${anilistId}`);
   }
   if (media?.idMal) {

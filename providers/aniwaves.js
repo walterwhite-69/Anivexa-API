@@ -194,7 +194,7 @@ async function resolveSeries(anilistId, ctx = {}) {
   if (isFresh(cached)) return cached.data;
   const media = ctx.media ?? await getMedia(anilistId);
   const titles = buildTitles(media, ctx.anizip);
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const discovered = new Map();
   await Promise.all(searchQueries(titles).map(async (query) => {
     try {
@@ -311,7 +311,7 @@ export async function getEpisodes(anilistId, ctx = {}) {
   const localCtx = { ...ctx, media };
   const [series, expected] = await Promise.all([
     resolveSeries(anilistId, localCtx),
-    Promise.resolve(expectedCount(media, ctx.anizip, ctx.jikanEps)),
+    Promise.resolve(expectedCount(media, ctx.anizip)),
   ]);
   const episodes = alignEpisodes(await fetchEpisodes(series), media, expected);
   return {
@@ -386,7 +386,7 @@ function skipRange(value) {
 async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   const media = ctx.media ?? await getMedia(anilistId);
   const series = await resolveSeries(anilistId, { ...ctx, media });
-  const expected = expectedCount(media, ctx.anizip, ctx.jikanEps);
+  const expected = expectedCount(media, ctx.anizip);
   const episodes = alignEpisodes(await fetchEpisodes(series), media, expected);
   const episode = episodes.find((item) => item.number === Number(epNum));
   if (!episode || (audio === "sub" && !episode.hasSub) || (audio === "dub" && !episode.hasDub)) {

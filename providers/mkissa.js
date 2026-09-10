@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { curlCffiFetch } from "../core/curlcffi.js";
 
 const __name = (fn, _) => fn;
 
@@ -19,6 +20,7 @@ const DISCOVERY_CONCURRENCY = 16;
 const DISCOVERY_LIMIT = 600;
 const FETCH_TIMEOUT_MS = 10000;
 const EXTRACT_TIMEOUT_MS = 5000;
+const MKISSA_CFFI_PROFILE = process.env.MKISSA_CFFI_PROFILE || "chrome";
 const TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlYjdkMWM0ZTgwMGUzM2FiMmE3Y2I3NDA5YmM4NjQ2YSIsIm5iZiI6MTc3OTUzMDcxOS40MzIsInN1YiI6IjZhMTE3YmRmYTlhNjNlYmFiOWUzYjc4YyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.Z9pa96oJEyicf6wAoaKGKJd9ldapeiOdktoJd4xcgLo";
 
 const HEX_TABLE = {
@@ -36,7 +38,6 @@ const HEX_TABLE = {
 };
 
 let cryptoConfigCache = null;
-let bootstrapCache = null;
 let episodeQueryCache = null;
 const sessionCookies = new Map();
 const watchMemoryCache = new Map();
@@ -123,6 +124,24 @@ async function sessionFetch(url, options = {}) {
   return res;
 }
 __name(sessionFetch, "sessionFetch");
+
+async function apiSessionFetch(url, options = {}) {
+  try {
+    return await curlCffiFetch(url, {
+      ...options,
+      session: "mkissa",
+      impersonate: MKISSA_CFFI_PROFILE,
+      warm: [{
+        url: `${REFERER}/`,
+        headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+      }],
+    });
+  } catch (error) {
+    if (process.env.MKISSA_CFFI_REQUIRED === "1") throw error;
+    return sessionFetch(url, options);
+  }
+}
+__name(apiSessionFetch, "apiSessionFetch");
 
 function absoluteAssetUrl(value, base = CDN_ROOT) {
   return new URL(value, base.endsWith("/") ? base : `${base}/`).toString();
@@ -260,7 +279,7 @@ __name(templateDependencies, "templateDependencies");
 
 function templateDeclaration(chunk, name, before = chunk.length) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const matches = [...chunk.matchAll(new RegExp(`\\b${escaped}\\s*=`, "g"))];
+  const matches = [...chunk.matchAll(new RegExp(`(?<![A-Za-z0-9_$])${escaped}\\s*=`, "g"))];
   let fallback = null;
   for (const match of matches) {
     const statement = declarationStatementAt(chunk, match.index);
@@ -272,6 +291,25 @@ function templateDeclaration(chunk, name, before = chunk.length) {
   return fallback;
 }
 __name(templateDeclaration, "templateDeclaration");
+
+function bootstrapBuildDeclaration(chunk) {
+  const matches = [...chunk.matchAll(/\bbuildId\s*:\s*[A-Za-z_$][\w$]*\s*=\s*([A-Za-z_$][\w$]*)\b/g)];
+  for (const match of matches) {
+    const entry = templateDeclaration(chunk, match[1], match.index);
+    if (entry) return entry;
+  }
+  return null;
+}
+__name(bootstrapBuildDeclaration, "bootstrapBuildDeclaration");
+
+function validEpisodeQuery(query) {
+  return typeof query === "string" &&
+    !/[\uD800-\uDFFF]/.test(query) &&
+    /\bquery\b/.test(query) &&
+    /\bepisode\s*\(\s*showId\s*:\s*\$showId\s+translationType\s*:\s*\$translationType\s+episodeString\s*:\s*\$episodeString\s*\)/.test(query) &&
+    !query.includes("${");
+}
+__name(validEpisodeQuery, "validEpisodeQuery");
 
 function evalEpisodeQueryChunk(chunk) {
   const operation = /\bepisode\s*\(\s*showId\s*:\s*\$showId\s*translationType\s*:\s*\$translationType\s*episodeString\s*:\s*\$episodeString\s*\)/g;
@@ -295,7 +333,7 @@ function evalEpisodeQueryChunk(chunk) {
     try {
       const source = [...definitions.values()].map((entry) => `const ${entry.name}=${entry.expression};`).join("\n");
       const query = Function(`${source}\nreturn ${candidate.name}();`)();
-      if (typeof query === "string" && /\bepisode\s*\(/.test(query) && query.includes("$episodeString") && !query.includes("${")) return query;
+      if (validEpisodeQuery(query)) return query;
     } catch {}
   }
   return null;
@@ -314,7 +352,7 @@ function evalFragmentCryptoChunk(chunk) {
     const configIndex = declarations.findIndex((entry) => /\b(?:saltMul|fragMul)\s*:/.test(entry.expression));
     const partsIndex = declarations.slice(0, configIndex).map((entry, index) => ({ entry, index })).reverse().find(({ entry }) => entry.expression.trim().startsWith("["))?.index;
     if (configIndex < 1 || partsIndex === undefined) continue;
-    const [build] = declarations;
+    const build = bootstrapBuildDeclaration(chunk) ?? declarations[0];
     const parts = declarations[partsIndex];
     const params = declarations[configIndex];
     const expression = `${build.expression};${parts.expression};${params.expression}`;
@@ -462,12 +500,24 @@ async function fetchWithTimeout(url, options = {}, timeout = EXTRACT_TIMEOUT_MS)
 }
 __name(fetchWithTimeout, "fetchWithTimeout");
 
+function appEntryUrl(html) {
+  const entry = html.match(/(?:import\(|src=)["']([^"']+\/_app\/immutable\/entry\/app\.[^"']+\.js)["']/)?.[1];
+  return entry ? new URL(entry, REFERER).toString() : null;
+}
+__name(appEntryUrl, "appEntryUrl");
+
 async function discoverCryptoConfig(force = false) {
-  if (!force && cryptoConfigCache?.expiresAt && Date.now() < cryptoConfigCache.expiresAt) return cryptoConfigCache;
   try {
-    const html = await fetchText(`${REFERER}/`, { Accept: "text/html,*/*" });
-    const appUrl = html.match(/(?:import\(|src=)["']([^"']+\/_app\/immutable\/entry\/app\.[^"']+\.js)["']/)?.[1];
+    const entryUrl = new URL(`${REFERER}/`);
+    if (force) entryUrl.searchParams.set("_mkissa", String(Date.now()));
+    const html = await fetchText(entryUrl, {
+      Accept: "text/html,*/*",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+    });
+    const appUrl = appEntryUrl(html);
     if (!appUrl) throw new Error("MKissa app entry not found");
+    if (!force && cryptoConfigCache?.appUrl === appUrl) return cryptoConfigCache;
     const app = await fetchText(appUrl, { Accept: "application/javascript,*/*" });
     const queue = [appUrl];
     const seen = new Set();
@@ -496,7 +546,7 @@ async function discoverCryptoConfig(force = false) {
         if (!/client-crypto|x-aa-boot|aaReq|partB/.test(item.text)) continue;
         const config = evalCryptoChunk(item.text);
         if (config) {
-          cryptoConfigCache = { ...config, sourceUrl: item.url, expiresAt: Date.now() + 1800000 };
+          cryptoConfigCache = { ...config, appUrl, sourceUrl: item.url };
           return cryptoConfigCache;
         }
       }
@@ -511,11 +561,11 @@ __name(discoverCryptoConfig, "discoverCryptoConfig");
 
 async function discoverEpisodeQuery(force = false) {
   const config = await discoverCryptoConfig(force);
-  if (!force && episodeQueryCache?.buildId === config.buildId && Date.now() < episodeQueryCache.expiresAt) return episodeQueryCache.query;
+  if (!force && episodeQueryCache?.appUrl === config.appUrl && episodeQueryCache.buildId === config.buildId) return episodeQueryCache.query;
   const inspect = (text) => {
     const query = evalEpisodeQueryChunk(text);
     if (query) {
-      episodeQueryCache = { buildId: config.buildId, query, expiresAt: config.expiresAt };
+      episodeQueryCache = { appUrl: config.appUrl, buildId: config.buildId, query };
       return query;
     }
     return null;
@@ -526,8 +576,8 @@ async function discoverEpisodeQuery(force = false) {
       if (query) return query;
     } catch {}
   }
-  const html = await fetchText(`${REFERER}/`, { Accept: "text/html,*/*" });
-  const appUrl = html.match(/(?:import\(|src=)["']([^"']+\/_app\/immutable\/entry\/app\.[^"']+\.js)["']/)?.[1];
+  const html = await fetchText(`${REFERER}/`, { Accept: "text/html,*/*", "Cache-Control": "no-cache", Pragma: "no-cache" });
+  const appUrl = appEntryUrl(html);
   if (!appUrl) return episodeQuery();
   const queue = [appUrl];
   const seen = new Set();
@@ -621,33 +671,48 @@ function makeBootToken(config, epoch, lane = CONTENT_LANE) {
 }
 __name(makeBootToken, "makeBootToken");
 
-async function fetchBootstrap(lane = CONTENT_LANE, force = false) {
-  const config = await discoverCryptoConfig(force);
-  if (!force && bootstrapCache?.lane === lane && bootstrapCache.buildId === config.buildId && bootstrapCache.switchAt && Date.now() < bootstrapCache.switchAt) {
-    return bootstrapCache;
+function isUnknownBuildId(raw) {
+  try {
+    return JSON.parse(raw)?.error === "unknown_build_id";
+  } catch {
+    return /unknown_build_id/i.test(raw);
   }
+}
+__name(isUnknownBuildId, "isUnknownBuildId");
+
+async function fetchBootstrap(lane = CONTENT_LANE, force = false) {
   let lastError = null;
-  for (const epoch of currentEpochs()) {
-    const res = await sessionFetch(`${API}/client-crypto/v1/bootstrap?buildId=${encodeURIComponent(config.buildId)}&k=${encodeURIComponent(lane)}`, {
-      headers: {
-        "Referer": `${REFERER}/`,
-        "Origin": REFERER,
-        "x-build-id": config.buildId,
-        "x-aa-boot": makeBootToken(config, epoch, lane)
+  for (let refresh = 0; refresh < 2; refresh++) {
+    const config = await discoverCryptoConfig(force || refresh > 0);
+    let retryWithFreshEntry = false;
+    for (const epoch of currentEpochs()) {
+      const res = await sessionFetch(`${API}/client-crypto/v1/bootstrap?buildId=${encodeURIComponent(config.buildId)}&k=${encodeURIComponent(lane)}`, {
+        headers: {
+          "Referer": `${REFERER}/`,
+          "Origin": REFERER,
+          "x-build-id": config.buildId,
+          "x-aa-boot": makeBootToken(config, epoch, lane)
+        }
+      });
+      const raw = await res.text();
+      if (!res.ok) {
+        lastError = new Error(`Bootstrap ${res.status}: ${raw.slice(0, 180)}`);
+        if (isUnknownBuildId(raw)) {
+          cryptoConfigCache = null;
+          episodeQueryCache = null;
+          retryWithFreshEntry = true;
+          break;
+        }
+        continue;
       }
-    });
-    const raw = await res.text();
-    if (!res.ok) {
-      lastError = new Error(`Bootstrap ${res.status}: ${raw.slice(0, 180)}`);
-      continue;
+      const data = JSON.parse(raw);
+      if (!data?.partB) {
+        lastError = new Error("Bootstrap missing partB");
+        continue;
+      }
+      return { ...data, ...config, lane, buildId: config.buildId };
     }
-    const data = JSON.parse(raw);
-    if (!data?.partB) {
-      lastError = new Error("Bootstrap missing partB");
-      continue;
-    }
-    bootstrapCache = { ...data, ...config, lane, buildId: config.buildId };
-    return bootstrapCache;
+    if (!retryWithFreshEntry) break;
   }
   throw lastError || new Error("MKissa bootstrap failed");
 }
@@ -844,7 +909,7 @@ __name(episodeQuery, "episodeQuery");
 async function apiPost(query, variables, options = {}) {
   const config = options.buildId ? options : await discoverCryptoConfig();
   const body = options.extensions ? { query, variables, extensions: options.extensions } : { query, variables };
-  const res = await sessionFetch(API_URL, {
+  const res = await apiSessionFetch(API_URL, {
     method: "POST",
     headers: apiHeaders(config.buildId, {
       "Content-Type": "application/json",
@@ -885,7 +950,7 @@ async function apiEpisode(query, variables, options = {}) {
     return posted?.tobeparsed ? decryptTobeparsed(posted.tobeparsed, key) : posted;
   }
   const url = `${API_URL}?variables=${encodeURIComponent(JSON.stringify(variables))}&extensions=${encodeURIComponent(JSON.stringify(extensions))}`;
-  const res = await sessionFetch(url, {
+  const res = await apiSessionFetch(url, {
     headers: apiHeaders(buildId)
   });
   const raw = await res.text();

@@ -165,27 +165,25 @@ export function buildTitles(media, anizip) {
   ].filter(Boolean);
 }
 
-export function expectedCount(media, anizip, jikanEps) {
+export function expectedCount(media, anizip) {
   const counts = [
     media?.episodes,
     ...Object.keys(anizip?.episodes ?? {}).map(Number).filter(Number.isFinite),
-    ...(jikanEps ?? []).map((e) => e.mal_id).filter(Number.isFinite),
   ].filter((n) => Number.isFinite(n) && n > 0);
   return counts.length ? Math.max(...counts) : null;
 }
 
 export function episodeMeta(n, ctx) {
   const az = ctx.anizip?.episodes?.[String(n)] ?? {};
-  const jk = (ctx.jikanEps ?? []).find((e) => Number(e.mal_id) === Number(n));
   const runtime = az.runtime ?? az.length ?? null;
   return {
-    title: jk?.title ?? az.title?.en ?? az.title?.["x-jat"] ?? null,
+    title: az.title?.en ?? az.title?.["x-jat"] ?? null,
     duration: runtime ? runtime * 60 : null,
-    filler: jk?.filler ?? az.filler ?? false,
+    filler: az.filler ?? false,
     uncensored: false,
     description: az.overview ?? az.summary ?? null,
     image: az.image ?? ctx.anizip?.images?.cover ?? null,
-    airDate: jk?.aired ?? az.airdate ?? az.aired ?? null,
+    airDate: az.airdate ?? az.aired ?? null,
   };
 }
 

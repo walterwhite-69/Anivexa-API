@@ -232,16 +232,6 @@ export function episodeTTL(status) {
   }
 }
 
-export function jikanPageTTL(isLastPage, status) {
-  if (!isLastPage || status === "FINISHED") return [7 * DAY, Infinity];
-  switch (status) {
-    case "RELEASING":        return [2 * HOUR,  15 * MIN];
-    case "HIATUS":           return [6 * HOUR,  60 * MIN];
-    case "NOT_YET_RELEASED": return [30 * MIN,  15 * MIN];
-    default:                 return [2 * HOUR,  15 * MIN];
-  }
-}
-
 export function mapTTL(status) {
   return status === "FINISHED" ? 30 * DAY : 12 * HOUR;
 }
