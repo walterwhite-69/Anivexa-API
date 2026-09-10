@@ -22,6 +22,8 @@ A single API that aggregates anime episode lists and streaming links from multip
 
 It's the backbone powering **[Anivexa](https://github.com/walterwhite-69/Anivexa)**, a full anime streaming client built on top of this.
 
+> This API intentionally uses AniList as its catalog and identity layer. When AniList is unavailable, the API may be partially unavailable or unstable as well. If you do not want an AniList-backed catalog, this simply is not the API for your use case!. So dont bother using it.
+
 ---
 
 ## Providers
@@ -76,7 +78,6 @@ git clone https://github.com/walterwhite-69/Anivexa-API
 cd Anivexa-API
 npm install
 cp .env.example .env
-python -m pip install -r workers/requirements.txt
 node server.js
 ```
 
@@ -93,9 +94,9 @@ Copy `.env.example` to `.env` and fill in the values.
 | `UPSTASH_REDIS_REST_TOKEN` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
 | `PORT` | `4000` | Local dev server port (`server.js` only — ignored on Vercel/serverless). Change it if `4000` is already in use, then hit `http://localhost:PORT`. |
-| `CURL_CFFI_PYTHON` | `python` | Python executable used by the local curl_cffi worker for MKissa. |
-| `MKISSA_CFFI_PROFILE` | `chrome` | curl_cffi browser profile used for MKissa requests. |
-| `MKISSA_CFFI_REQUIRED` | `false` | Set to `true` to return a worker error instead of falling back to Node fetch when Python or curl_cffi is unavailable. |
+| `MKISSA_WREQ_BROWSER` | `chrome_149` | wreq-js browser TLS and HTTP/2 profile used for MKissa requests. |
+| `MKISSA_WREQ_OS` | `windows` | Operating-system profile paired with the MKissa browser profile. |
+| `MKISSA_WREQ_REQUIRED` | `false` | Set to `1` to return a wreq-js error instead of falling back to Node fetch when its native binding is unavailable. |
 
 On Vercel (or Railway/Render), set these as regular project environment variables instead of committing `.env`.
 

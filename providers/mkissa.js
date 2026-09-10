@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { curlCffiFetch } from "../core/curlcffi.js";
+import { wreqFetch } from "../core/wreq.js";
 
 const __name = (fn, _) => fn;
 
@@ -20,7 +20,8 @@ const DISCOVERY_CONCURRENCY = 16;
 const DISCOVERY_LIMIT = 600;
 const FETCH_TIMEOUT_MS = 10000;
 const EXTRACT_TIMEOUT_MS = 5000;
-const MKISSA_CFFI_PROFILE = process.env.MKISSA_CFFI_PROFILE || "chrome";
+const MKISSA_WREQ_BROWSER = process.env.MKISSA_WREQ_BROWSER || "chrome_149";
+const MKISSA_WREQ_OS = process.env.MKISSA_WREQ_OS || "windows";
 const TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlYjdkMWM0ZTgwMGUzM2FiMmE3Y2I3NDA5YmM4NjQ2YSIsIm5iZiI6MTc3OTUzMDcxOS40MzIsInN1YiI6IjZhMTE3YmRmYTlhNjNlYmFiOWUzYjc4YyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.Z9pa96oJEyicf6wAoaKGKJd9ldapeiOdktoJd4xcgLo";
 
 const HEX_TABLE = {
@@ -118,7 +119,7 @@ __name(apiHeaders, "apiHeaders");
 async function sessionFetch(url, options = {}) {
   const res = await fetch(url, {
     ...options,
-    headers: browserHeaders(options.headers || {})
+    headers: browserHeaders(options.headers || {}),
   });
   storeCookies(res.headers);
   return res;
@@ -127,17 +128,20 @@ __name(sessionFetch, "sessionFetch");
 
 async function apiSessionFetch(url, options = {}) {
   try {
-    return await curlCffiFetch(url, {
+    const res = await wreqFetch(url, {
       ...options,
-      session: "mkissa",
-      impersonate: MKISSA_CFFI_PROFILE,
       warm: [{
         url: `${REFERER}/`,
         headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
       }],
+      session: "mkissa",
+      browser: MKISSA_WREQ_BROWSER,
+      os: MKISSA_WREQ_OS,
     });
+    storeCookies(res.headers);
+    return res;
   } catch (error) {
-    if (process.env.MKISSA_CFFI_REQUIRED === "1") throw error;
+    if (process.env.MKISSA_WREQ_REQUIRED === "1") throw error;
     return sessionFetch(url, options);
   }
 }
