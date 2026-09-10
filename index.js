@@ -38,6 +38,21 @@ function rewriteRequest(request, newPath) {
 
 const watchInflight = new Map();
 
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX       = 60;
+const rateLimitMap         = new Map();
+
+function isRateLimited(clientKey) {
+  const now   = Date.now();
+  const entry = rateLimitMap.get(clientKey);
+  if (!entry || now - entry.start > RATE_LIMIT_WINDOW_MS) {
+    rateLimitMap.set(clientKey, { start: now, count: 1 });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RATE_LIMIT_MAX;
+}
+
 async function cachedWatch(cacheKey, handlerFn) {
   const entry = await getAsync(cacheKey);
   if (entry && isFresh(entry)) return json(entry.data);
@@ -79,6 +94,13 @@ export default {
           "Access-Control-Allow-Headers": "*",
         },
       });
+    }
+
+    const clientKey = request.headers.get("cf-connecting-ip")
+      || request.headers.get("x-forwarded-for")
+      || "unknown";
+    if (isRateLimited(clientKey)) {
+      return json({ error: "Too many requests, please slow down." }, 429);
     }
 
     let m = path.match(/^\/map\/(\d+)\/?$/);
