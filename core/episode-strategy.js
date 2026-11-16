@@ -102,7 +102,7 @@ export function resolveProviders(rawNames) {
 function providerFns(anilistId, status, ctx) {
   return {
     mkissa: () => withCache(`epv:match2:mkissa:${anilistId}`, status, () => mkissaEpisodes(anilistId, ctx)),
-    reanime:  () => withCache(`epv:match2:reanime:${anilistId}`, status, () => reanimeEpisodes(anilistId, ctx)),
+    reanime:  () => withCache(`epv:match3:reanime:${anilistId}`, status, () => reanimeEpisodes(anilistId, ctx)),
     anikoto:  () => withCache(`epv:match2:anikoto:${anilistId}`, status, () => anikotoEpisodes(anilistId, ctx)),
     animegg:  () => withCache(`epv:match2:animegg:${anilistId}`, status, () => animeggEpisodes(anilistId, ctx)),
     animenosub: () => withCache(`epv:match2:animenosub:${anilistId}`, status, () => animenosubEpisodes(anilistId, ctx)),
@@ -137,7 +137,7 @@ export async function buildEpisodesWithCache(anilistId, media, anizip) {
 
   const [mkissa, reanime, anikoto, animegg, animenosub, anizone, aniwaves, senshi, kaa, animedunya, animeonsen, anipm] = await Promise.all([
     safe("mkissa",     () => withCache(`epv:match2:mkissa:${anilistId}`,     status, () => mkissaEpisodes(anilistId, ctx))),
-    safe("reanime",    () => withCache(`epv:match2:reanime:${anilistId}`,    status, () => reanimeEpisodes(anilistId, ctx))),
+    safe("reanime",    () => withCache(`epv:match3:reanime:${anilistId}`,    status, () => reanimeEpisodes(anilistId, ctx))),
     safe("anikoto",    () => withCache(`epv:match2:anikoto:${anilistId}`,    status, () => anikotoEpisodes(anilistId, ctx))),
     safe("animegg",    () => withCache(`epv:match2:animegg:${anilistId}`,    status, () => animeggEpisodes(anilistId, ctx))),
     safe("animenosub", () => withCache(`epv:match2:animenosub:${anilistId}`, status, () => animenosubEpisodes(anilistId, ctx))),
