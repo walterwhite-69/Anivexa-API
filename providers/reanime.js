@@ -20,6 +20,15 @@ async function searchReanime(query, genre = null) {
   return Array.isArray(data?.results) ? data.results : [];
 }
 __name(searchReanime, "searchReanime");
+function reportsNoEpisodes(candidate) {
+  const counts = [
+    candidate?.subbed,
+    candidate?.dubbed,
+    candidate?.episodes
+  ].filter(Number.isFinite);
+  return counts.length > 0 && counts.every((count) => count <= 0);
+}
+__name(reportsNoEpisodes, "reportsNoEpisodes");
 async function fetchAnimeDetail(animeId) {
   const res = await fetch(`${BASE}/api/v1/anime/${animeId}`, { headers: H });
   if (!res.ok) return null;
@@ -38,7 +47,7 @@ function extractAnilistIdFromCover(coverImage) {
 }
 __name(extractAnilistIdFromCover, "extractAnilistIdFromCover");
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match2:reanime:${anilistId}`;
+  const cacheKey = `np:match3:reanime:${anilistId}`;
   const cached = cacheGet(cacheKey);
   if (cacheIsFresh(cached)) return cached.data;
 
@@ -57,11 +66,11 @@ async function resolveSeries(anilistId, ctx = {}) {
     }
   }));
 
-  // Fast pass: AniList CDN cover URLs embed the AniList ID as bx{id}-*.
-  // If a candidate's cover image already confirms our ID we can skip detail fetches entirely.
+  // Fast pass: AniList CDN covers embed the AniList ID as bx{id}-*.
+  // Ignore empty aliases so a populated duplicate can be resolved in the detail pass.
   for (const [id, r] of candidates) {
     const coverId = extractAnilistIdFromCover(r.cover_image);
-    if (coverId && coverId === Number(anilistId)) {
+    if (coverId && coverId === Number(anilistId) && !reportsNoEpisodes(r)) {
       const data = {
         animeId: id,
         title: r.title?.english || r.title?.romaji || id,
@@ -88,7 +97,11 @@ async function resolveSeries(anilistId, ctx = {}) {
   );
 
   for (const { id, detail } of details) {
-    if (detail?.anilist_id && Number(detail.anilist_id) === Number(anilistId)) {
+    if (
+      detail?.anilist_id &&
+      Number(detail.anilist_id) === Number(anilistId) &&
+      !reportsNoEpisodes(candidates.get(id))
+    ) {
       const data = {
         animeId: id,
         title: detail.title?.english || detail.title?.romaji || candidates.get(id)?.title?.english || id,
@@ -108,7 +121,11 @@ async function resolveSeries(anilistId, ctx = {}) {
   if (malId) {
     for (const { id, detail } of details) {
       const detailMal = detail?.mal_id;
-      if (detailMal && Number(detailMal) === Number(malId)) {
+      if (
+        detailMal &&
+        Number(detailMal) === Number(malId) &&
+        !reportsNoEpisodes(candidates.get(id))
+      ) {
         const data = {
           animeId: id,
           title: detail.title?.english || detail.title?.romaji || id,
