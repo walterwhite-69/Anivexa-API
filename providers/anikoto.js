@@ -2,7 +2,43 @@ import { getMedia } from '../core/anilist.js';
 import { extractMegaPlayDetails } from "../extractors/megaplay.js";
 import { buildTitleSearchQueries, buildTitles, decodeEntities, titleIdentityScore } from "../core/new-provider-utils.js";
 
-const ANIKOTO = "https://anikototv.to";
+// AniKoto rotates domains (anikoto.cz -> anikototv.to -> anikototv.bz ...).
+// The old hosts keep serving as redirects, so resolve the live origin once and
+// never hardcode it in a regex again.
+const ANIKOTO_KNOWN_HOSTS = [
+  "https://anikototv.bz",
+  "https://anikototv.to",
+  "https://anikoto.cz",
+];
+const ANIKOTO_BASE_TTL_MS = 6 * 60 * 60 * 1000;
+let ANIKOTO_BASE = ANIKOTO_KNOWN_HOSTS[0];
+let ANIKOTO_BASE_AT = 0;
+
+async function anikotoBase({ force = false } = {}) {
+  if (!force && ANIKOTO_BASE && Date.now() - ANIKOTO_BASE_AT < ANIKOTO_BASE_TTL_MS) {
+    return ANIKOTO_BASE;
+  }
+  const candidates = [ANIKOTO_BASE, ...ANIKOTO_KNOWN_HOSTS].filter(Boolean);
+  for (const host of [...new Set(candidates)]) {
+    try {
+      const res = await fetch(`${host}/`, {
+        headers: { "User-Agent": UA, Accept: "text/html,*/*" },
+        redirect: "follow",
+      });
+      if (!res.ok) continue;
+      const origin = new URL(res.url).origin;
+      if (!origin || !/^https?:$/.test(new URL(origin).protocol)) continue;
+      ANIKOTO_BASE = origin;
+      ANIKOTO_BASE_AT = Date.now();
+      return ANIKOTO_BASE;
+    } catch {}
+  }
+  return ANIKOTO_BASE;
+}
+
+function anikotoBaseSync() {
+  return ANIKOTO_BASE;
+}
 const MAPPER = "https://mapper.nekostream.site/api/mal";
 const ANIZIP = "https://api.ani.zip/mappings";
 const SPOOF_REF = "https://hianimes.re/";
@@ -84,28 +120,58 @@ function scoreCandidate(cand, primaryEn, primaryRom, synonyms) {
   return score;
 }
 
-async function searchAnikoto(query) {
-  const searchHtml = await httpGet(`${ANIKOTO}/filter?keyword=${encodeURIComponent(query)}`, { Referer: `${ANIKOTO}/` });
-  const candidates = [];
-  
-  const re = /<a\s+class="name d-title"\s+href="https:\/\/anikototv\.to\/watch\/([^"/]+)(?:\/ep-\d+)?"[^>]*data-jp="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
-  let m;
-  while ((m = re.exec(searchHtml)) !== null) {
-    const slug = m[1];
-    const jp = decodeEntities(m[2].trim());
-    const name = decodeEntities(m[3].replace(/<[^>]*>/g, "").trim());
-    candidates.push({ slug, name, jp });
+function parseSearchAnchors(html) {
+  // The result cards are <a class="name d-title" href=".../watch/<slug>/ep-N"
+  // data-jp="<native title>">Title</a>. Keep them as the primary source and
+  // only fall back to every /watch/ anchor when the card markup changes.
+  const cards = [];
+  const loose = [];
+  for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)) {
+    const attrs = match[1];
+    const href = attrs.match(/href=["']([^"']+)["']/)?.[1] ?? "";
+    const slug = href.match(/\/watch\/([^"\/?#]+)/)?.[1];
+    if (!slug) continue;
+    const jp = decodeEntities(attrs.match(/data-jp=["']([^"']*)["']/)?.[1] ?? "");
+    const inner = decodeEntities(match[2].replace(/<[^>]*>/g, "").trim());
+    const name = inner || jp || decodeEntities(slug.replace(/-/g, " "));
+    const entry = { slug, name, jp };
+    if (/\bd-title\b/.test(attrs)) cards.push(entry);
+    else loose.push(entry);
   }
+  const source = cards.length ? cards : loose;
+  const seen = new Set();
+  const out = [];
+  for (const candidate of source) {
+    if (seen.has(candidate.slug)) continue;
+    if (!cards.length && /^\d+$/.test(candidate.name)) continue;
+    seen.add(candidate.slug);
+    out.push(candidate);
+  }
+  return out;
+}
 
-  if (!candidates.length) {
-    const reFallback = /<a\s+href="https:\/\/anikototv\.to\/watch\/([^"/]+)(?:\/ep-\d+)?"[^>]*>([\s\S]*?)<\/a>/g;
-    while ((m = reFallback.exec(searchHtml)) !== null) {
-      candidates.push({ slug: m[1], name: m[1], jp: "" });
+async function searchAnikoto(query) {
+  const base = await anikotoBase();
+  let searchHtml;
+  try {
+    searchHtml = await httpGet(`${base}/filter?keyword=${encodeURIComponent(query)}`, { Referer: `${base}/` });
+  } catch (e) {
+    // A dead origin must re-resolve instead of poisoning every later request.
+    if (/HTTP 4\d\d|HTTP 5\d\d/.test(e?.message ?? "")) {
+      await anikotoBase({ force: true });
+      searchHtml = await httpGet(`${anikotoBaseSync()}/filter?keyword=${encodeURIComponent(query)}`, { Referer: `${anikotoBaseSync()}/` });
+    } else {
+      throw e;
     }
   }
 
+  let candidates = parseSearchAnchors(searchHtml);
+  // Prefer real titles; episode-number anchors from sidebars are pure noise.
+  const titled = candidates.filter((c) => c.name && !/^\d+$/.test(c.name));
+  if (titled.length) candidates = titled;
+
   const seen = new Set();
-  return candidates.filter(c => {
+  return candidates.filter((c) => {
     if (seen.has(c.slug)) return false;
     seen.add(c.slug);
     return true;
@@ -136,12 +202,13 @@ function parseEpisodeRows(html) {
 }
 
 async function inspectAnikotoCandidate(candidate) {
-  const watchHtml = await httpGet(`${ANIKOTO}/watch/${candidate.slug}`, { Referer: `${ANIKOTO}/` });
+  const base = await anikotoBase();
+  const watchHtml = await httpGet(`${base}/watch/${candidate.slug}`, { Referer: `${base}/` });
   const showId = watchHtml.match(/data-id="(\d+)"/)?.[1];
   if (!showId) return null;
-  const listJson = await getJSON(`${ANIKOTO}/ajax/episode/list/${showId}`, {
+  const listJson = await getJSON(`${base}/ajax/episode/list/${showId}`, {
     "X-Requested-With": "XMLHttpRequest",
-    Referer: `${ANIKOTO}/watch/${candidate.slug}`,
+    Referer: `${base}/watch/${candidate.slug}`,
   });
   const episodes = parseEpisodeRows(listJson.result || "");
   return episodes.length ? { ...candidate, showId, episodes } : null;
@@ -326,6 +393,7 @@ export async function getEpisodes(anilistId, ctx = {}) {
 }
 
 async function handleWatch(anilistId, audio, epNum, ctx = {}) {
+  const base = await anikotoBase();
   if (audio !== "sub" && audio !== "dub") {
     return jsonResponse({ error: "audio must be sub or dub" }, 400);
   }
@@ -345,12 +413,12 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   const malIdNum = targetEp.malId || media.idMal || null;
 
   const [serverDataRes, mapperRes] = await Promise.allSettled([
-    getJSON(`${ANIKOTO}/ajax/server/list?servers=${encodeURIComponent(targetEp.ids)}`, {
+    getJSON(`${base}/ajax/server/list?servers=${encodeURIComponent(targetEp.ids)}`, {
       "X-Requested-With": "XMLHttpRequest",
-      Referer: `${ANIKOTO}/`
+      Referer: `${base}/`
     }),
     (targetEp.malId && targetEp.slug && targetEp.timestamp)
-      ? getJSON(`${MAPPER}/${targetEp.malId}/${targetEp.slug}/${targetEp.timestamp}`, { Referer: `${ANIKOTO}/` })
+      ? getJSON(`${MAPPER}/${targetEp.malId}/${targetEp.slug}/${targetEp.timestamp}`, { Referer: `${base}/` })
       : Promise.resolve(null)
   ]);
 
@@ -415,9 +483,9 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
 
     const resolved = item.linkId.startsWith("http")
       ? { result: { url: item.linkId } }
-      : await getJSON(`${ANIKOTO}/ajax/server?get=${encodeURIComponent(item.linkId)}`, {
+      : await getJSON(`${base}/ajax/server?get=${encodeURIComponent(item.linkId)}`, {
           "X-Requested-With": "XMLHttpRequest",
-          Referer: `${ANIKOTO}/`
+          Referer: `${base}/`
         }).catch(() => null);
 
     const embedUrl = resolved?.result?.url;
@@ -518,9 +586,9 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   for (const dl of downloadItems) {
     let dlUrl = dl.url;
     if (!dlUrl && dl.linkId) {
-      const resolved = await getJSON(`${ANIKOTO}/ajax/server?get=${encodeURIComponent(dl.linkId)}`, {
+      const resolved = await getJSON(`${base}/ajax/server?get=${encodeURIComponent(dl.linkId)}`, {
         "X-Requested-With": "XMLHttpRequest",
-        Referer: `${ANIKOTO}/`
+        Referer: `${base}/`
       }).catch(() => null);
       dlUrl = resolved?.result?.url;
     }
@@ -550,7 +618,7 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
     downloads,
     headers: {
       "User-Agent": UA,
-      "Referer": streams[0]?.referer || "https://anikototv.to/"
+      "Referer": streams[0]?.referer || `${base}/`
     }
   });
 }
