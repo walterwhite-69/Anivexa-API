@@ -84,7 +84,7 @@ async function bootstrap(series, episode, audio) {
 }
 
 async function resolveSeries(anilistId, ctx = {}) {
-  const key = `np:match2:anipm:${anilistId}`;
+  const key = `np:match3:anipm:${anilistId}`;
   const cached = get(key);
   if (isFresh(cached)) return cached.data;
   const media = ctx.media ?? await getMedia(anilistId);
@@ -106,8 +106,11 @@ async function resolveSeries(anilistId, ctx = {}) {
     for (const items of batches) {
       for (const item of items) {
         if (item?.id && identityMatches(item, media)) {
-          const source = item.source || item.provider;
-          if (source) candidates.set(`${source}:${item.id}`, { id: String(item.id), source: String(source), title: item.title || item.name || "" });
+          const source = String(item.source || item.provider || "");
+          const sourceId = source.toLowerCase() === "anilist"
+            ? Number(item.anilistId ?? item.anilist_id) || item.id
+            : item.id;
+          if (source) candidates.set(`${source}:${sourceId}`, { id: String(sourceId), source, title: item.title || item.name || "" });
         }
       }
     }
@@ -193,15 +196,56 @@ function mapSubtitles(items, referer) {
   }).filter(Boolean);
 }
 
+function playbackSources(data, embedData, embedUrl) {
+  const variants = [];
+  const add = (value, label = "") => {
+    const item = typeof value === "string" ? { url: value } : value;
+    if (!item || typeof item !== "object") return;
+    const source = item.url ?? item.src ?? item.file ?? item.source ?? item.streamUrl;
+    if (typeof source !== "string") return;
+    let parsed;
+    try { parsed = new URL(source); } catch { return; }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
+    const serverValue = item.serverName ?? item.server?.name ?? item.server ?? item.name ?? label
+      ?? embedData.serverName ?? embedData.server?.name ?? embedData.provider ?? data.serverName ?? data.provider;
+    const server = typeof serverValue === "string" && serverValue.trim() ? serverValue.trim() : "Ani.pm";
+    const referer = item.referer ?? new URL(embedUrl).origin + "/";
+    variants.push({
+      url: parsed.href,
+      server,
+      type: item.type ?? item.kind ?? embedData.kind ?? "hls",
+      referer,
+      embedUrl: item.embedUrl ?? embedUrl,
+      audioLang: item.audioLang ?? item.audio ?? embedData.audioLang ?? embedData.audio ?? null,
+      subtitles: mapSubtitles(item.subtitles ?? item.tracks ?? embedData.subtitles ?? embedData.tracks, referer),
+    });
+  };
+
+  for (const item of Array.isArray(embedData.sources) ? embedData.sources : []) add(item);
+  if (Array.isArray(embedData.servers)) {
+    for (const item of embedData.servers) add(item);
+  } else if (embedData.servers && typeof embedData.servers === "object") {
+    for (const [name, item] of Object.entries(embedData.servers)) add(item, name);
+  }
+  add(embedData.source ?? embedData.url ?? embedData.file, embedData.serverName ?? embedData.server);
+  if (Array.isArray(data.sources)) for (const item of data.sources) add(item);
+  add(data.source ?? data.url ?? data.file, data.serverName ?? data.server);
+  return [...new Map(variants.map((item) => [item.url, item])).values()];
+}
+
 async function getChannelUrl(series, episode, audio, channel) {
   const url = new URL("/api/anime/settlar/session", SITE);
   url.searchParams.set("selection", series.selection);
-  url.searchParams.set("provider", "anipm");3
+  url.searchParams.set("provider", "anipm");
   url.searchParams.set("ep", String(episode));
   url.searchParams.set("channel", channel);
   url.searchParams.set("telemetry", "0");
   const result = await requestJson(url.href);
   const embedUrl = result?.embedUrl ?? result?.url;
+  if (!embedUrl) {
+    const direct = playbackSources(result, result, SITE + "/");
+    if (direct.length) return direct;
+  }
   if (!embedUrl) throw new Error(`Ani.pm returned no Settlar embed for ${channel}`);
   const embed = new URL(embedUrl);
   const token = embed.searchParams.get("t");
@@ -216,15 +260,137 @@ async function getChannelUrl(series, episode, audio, channel) {
   if (!response.ok) throw new Error(`Settlar session HTTP ${response.status}: ${raw.slice(0, 350)}`);
   let data;
   try { data = JSON.parse(raw); } catch { throw new Error("Settlar returned invalid session JSON"); }
-  const source = data?.source ?? data?.sources?.[0]?.file ?? data?.sources?.[0]?.url;
-  if (!source || !/^https?:\/\//i.test(source)) throw new Error(`Settlar returned no playable source for ${channel}`);
-  return {
-    url: source,
-    embedUrl: embed.href,
-    referer: `${embed.origin}/`,
-    subtitles: mapSubtitles(data.subtitles ?? data.tracks, `${SITE}/`),
-    audioLang: data.audioLang ?? data.audio ?? null,
-  };
+  const sources = playbackSources(result, data, embed.href);
+  if (!sources.length) throw new Error(`Settlar returned no playable source for ${channel}`);
+  return sources;
+}
+
+async function getBetaServer(anilistId) {
+  const key = "np:anipm-beta:v1:" + anilistId;
+  const cached = get(key);
+  if (isFresh(cached)) return cached.data;
+  try {
+    const data = await requestJson(SITE + "/api/anime/beta-server/" + encodeURIComponent(anilistId));
+    if (data?.available) set(key, data, SHOW_IDENTITY_TTL);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function betaServerRecords(data) {
+  if (Array.isArray(data?.servers)) return data.servers;
+  if (data?.servers && typeof data.servers === "object") {
+    return Object.entries(data.servers).map(([name, server]) => ({ ...server, name: server?.name ?? name }));
+  }
+  return data ? [data] : [];
+}
+
+function betaRenditions(manifest, masterUrl, referer) {
+  const audioTracks = [];
+  const subtitles = [];
+  for (const line of manifest.split(/\r?\n/)) {
+    if (!line.startsWith("#EXT-X-MEDIA:")) continue;
+    const attributes = {};
+    for (const match of line.slice(line.indexOf(":") + 1).matchAll(/([A-Z0-9-]+)=("(?:[^"]*)"|[^,]*)/g)) {
+      attributes[match[1]] = match[2].replace(/^"|"$/g, "");
+    }
+    let source = null;
+    if (attributes.URI) {
+      try { source = new URL(attributes.URI, masterUrl).href; } catch {}
+    }
+    const label = attributes.NAME ?? attributes.LANGUAGE ?? "Track";
+    if (attributes.TYPE === "AUDIO") {
+      audioTracks.push({
+        url: source,
+        label,
+        language: attributes.LANGUAGE ?? "und",
+        default: attributes.DEFAULT === "YES",
+        headers: { Referer: referer },
+      });
+    } else if (attributes.TYPE === "SUBTITLES") {
+      subtitles.push({
+        url: source,
+        label,
+        srclang: attributes.LANGUAGE ?? "und",
+        default: attributes.DEFAULT === "YES",
+        forced: attributes.FORCED === "YES",
+        format: "m3u8",
+        headers: { Referer: referer },
+      });
+    }
+  }
+  return { audioTracks, subtitles };
+}
+
+async function betaServerStreams(info, anilistId, episode, audio) {
+  const episodeNumber = Number(episode);
+  if (!info?.available || !Number.isInteger(episodeNumber) || episodeNumber < 1) return [];
+  const streams = [];
+  for (const server of betaServerRecords(info)) {
+    if (server?.available === false || (server?.[audio] ?? info[audio]) !== true) continue;
+    const episodeList = server?.episodes ?? info.episodes;
+    if (Array.isArray(episodeList) && !episodeList.some((number) => Number(number) === episodeNumber)) continue;
+    let origin;
+    let player;
+    let master;
+    try {
+      origin = new URL(server.origin ?? info.origin);
+      const route = String(server.path ?? info.path ?? "").replace(/\/+$/, "");
+      player = new URL(route + "/" + episodeNumber, origin);
+      player.searchParams.set("lang", audio);
+      player.searchParams.set("embed", "ani");
+      const explicitMaster = server.masterUrl ?? server.hlsUrl ?? server.master;
+      if (explicitMaster) {
+        master = new URL(String(explicitMaster).replace(/\{(?:episode|ep)\}/gi, String(episodeNumber).padStart(4, "0")), origin);
+      } else {
+        const routeMatch = new URL(route, origin).pathname.match(/^\/watch\/(.+)-(\d+)\/?$/i);
+        if (!routeMatch || Number(routeMatch[2]) !== Number(anilistId)) continue;
+        const catalogSlug = routeMatch[1];
+        const episodePath = "E" + String(episodeNumber).padStart(4, "0");
+        master = new URL("/hls/" + routeMatch[2] + "-" + catalogSlug + "/" + episodePath + "/master.m3u8", origin);
+      }
+    } catch {
+      continue;
+    }
+    if (!/^https?:$/.test(origin.protocol) || player.origin !== origin.origin || master.origin !== origin.origin) continue;
+    const response = await wreq(master.href, {
+      headers: {
+        ...requestHeaders(player.href),
+        Accept: "application/vnd.apple.mpegurl,application/x-mpegURL,*/*",
+      },
+    }).catch(() => null);
+    if (!response?.ok) continue;
+    const manifest = (await response.text()).replace(/^\uFEFF/, "").trimStart();
+    if (!manifest.startsWith("#EXTM3U")) continue;
+    const tracks = betaRenditions(manifest, master.href, player.href);
+    const serverName = String(server.serverName ?? server.label ?? server.name ?? "Beta");
+    const subtitleType = tracks.subtitles.length ? "softsub" : "none";
+    streams.push({
+      url: master.href,
+      type: "hls",
+      server: serverName,
+      referer: player.href,
+      embed: player.href,
+      subtitleType,
+      audioTracks: tracks.audioTracks,
+      subtitles: tracks.subtitles,
+      priority: 4,
+      isActive: false,
+    });
+    streams.push({
+      url: player.href,
+      type: "embed",
+      server: serverName,
+      referer: origin.origin + "/",
+      subtitleType,
+      audioTracks: tracks.audioTracks,
+      subtitles: tracks.subtitles,
+      priority: 3,
+      isActive: false,
+    });
+  }
+  return streams;
 }
 
 async function handleWatch(anilistId, audio, epNum, ctx = {}) {
@@ -239,27 +405,33 @@ async function handleWatch(anilistId, audio, epNum, ctx = {}) {
   const selection = initial.settlarSelection;
   if (!selection) throw new Error("Ani.pm bootstrap is missing Settlar selection data");
   const currentSeries = { ...series, selection };
-  const channels = [audio, ...(packageInfo?.[`${audio}hard`] === true ? [`${audio}hard`] : [])];
+  const hardChannel = audio + "hard";
+  const hasHard = packageInfo?.[hardChannel] === true;
+  const hardFirst = packageInfo?.[hardChannel + "First"] === true;
+  const channels = hasHard && hardFirst ? [hardChannel, audio] : [audio, ...(hasHard ? [hardChannel] : [])];
   const streams = [];
   for (const channel of channels) {
     try {
-      const resolved = await getChannelUrl(currentSeries, epNum, audio, channel);
-      streams.push({
-        url: resolved.url,
-        type: "hls",
-        server: "Ani.pm",
-        referer: resolved.referer,
-        embed: resolved.embedUrl,
-        subtitleType: channel.endsWith("hard") ? "hardsub" : "softsub",
-        audioLang: resolved.audioLang,
-        subtitles: resolved.subtitles,
-        priority: channel.endsWith("hard") ? 4 : 5,
-        isActive: streams.length === 0,
-      });
+      const resolvedSources = await getChannelUrl(currentSeries, epNum, audio, channel);
+      for (const resolved of resolvedSources) {
+        streams.push({
+          url: resolved.url,
+          type: resolved.type,
+          server: resolved.server,
+          referer: resolved.referer,
+          embed: resolved.embedUrl,
+          subtitleType: channel.endsWith("hard") ? "hardsub" : "softsub",
+          audioLang: resolved.audioLang,
+          subtitles: resolved.subtitles,
+          priority: channel.endsWith("hard") ? 4 : 5,
+          isActive: streams.length === 0,
+        });
+      }
     } catch (error) {
       if (channel === audio) throw error;
     }
   }
+  streams.push(...await betaServerStreams(await getBetaServer(anilistId), anilistId, epNum, audio));
   return json({
     anilistId: Number(anilistId),
     episode: Number(epNum),

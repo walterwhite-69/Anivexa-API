@@ -8,6 +8,7 @@ import {
   getPrequelOffset,
   json,
   titleIdentityScore,
+  titleMarkersConflict,
 } from "../core/new-provider-utils.js";
 import { get, set, isFresh, SHOW_IDENTITY_TTL } from "../core/smartcache.js";
 
@@ -157,6 +158,7 @@ function coverageScore(candidate, expected, status) {
 }
 
 function validateCandidate(candidate, media, titles, expected) {
+  if (titleMarkersConflict(titles, [...candidate.titles, candidate.slug.replace(/-/g, " ")], media?.format, { allowMissing: true })) return null;
   const titleScore = candidateTitleScore(titles, candidate);
   const format = expectedFormat(media?.format);
   const year = Number(media?.startDate?.year ?? media?.seasonYear ?? 0) || null;
@@ -181,7 +183,7 @@ function validateCandidate(candidate, media, titles, expected) {
 }
 
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match2:anizone:${anilistId}`;
+  const cacheKey = `np:match4:anizone:${anilistId}`;
   const cached = get(cacheKey);
   if (isFresh(cached)) return cached.data;
   const media = ctx.media ?? await getMedia(anilistId);

@@ -43,7 +43,8 @@ function hasCurrentProviders(data) {
     Object.prototype.hasOwnProperty.call(data, "aniwaves") &&
     Object.prototype.hasOwnProperty.call(data, "animeonsen") &&
     Object.prototype.hasOwnProperty.call(data, "anipm") &&
-    !Object.prototype.hasOwnProperty.call(data, "anihq");
+    Object.prototype.hasOwnProperty.call(data, "pahenime") &&
+    Object.prototype.hasOwnProperty.call(data, "anihq");
 }
 
 function latestEpisodeFromAniZip(anizip) {
@@ -60,13 +61,14 @@ function resolveShared(anilistId, freshMedia = false) {
 }
 
 async function clearProviderCache(anilistId, media) {
-  for (const p of ["pahe", "manga", "mkissa", "reanime", "anikoto", "animegg", "anizone", "aniwaves", "animeonsen", "anipm"]) {
+  for (const p of ["pahe", "manga", "anihq", "reanime", "anikoto", "animegg", "anizone", "aniwaves", "pahenime", "animeonsen", "anipm"]) {
     await delAsync(`epv:${p}:${anilistId}`);
     if (p === "reanime" || p === "anikoto") {
       await delAsync(`epv:${p}:v2:${anilistId}`);
     }
     await delAsync(`epv:match2:${p}:${anilistId}`);
   }
+  await delAsync(`np:anihq:v1:${anilistId}`);
   if (media?.idMal) {
     await delAsync(`jm:${media.idMal}`);
     await delByPrefixAsync(`jp:${media.idMal}:`);

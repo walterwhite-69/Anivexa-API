@@ -1,13 +1,13 @@
 import { getMedia }                from "./core/anilist.js";
 import { mapAnimeIds }             from "./core/mapper.js";
-import mkissaHandler               from "./providers/mkissa.js";
+import anihqHandler                from "./providers/anihq.js";
 import reanimeHandler              from "./providers/reanime.js";
 import anikotoHandler              from "./providers/anikoto.js";
 import animeggHandler              from "./providers/animegg.js";
 import animenosubHandler           from "./providers/animenosub.js";
 import anizoneHandler              from "./providers/anizone.js";
 import aniwavesHandler             from "./providers/aniwaves.js";
-import senshiHandler               from "./providers/senshi.js";
+import pahenimeHandler             from "./providers/pahenime.js";
 import kaaHandler                  from "./providers/kickassanime.js";
 import animedunyaHandler           from "./providers/animedunya.js";
 import animeonsenHandler           from "./providers/animeonsen.js";
@@ -129,17 +129,13 @@ export default {
       }
     }
 
-    m = path.match(/^\/watch\/mkissa\/(\d+)\/(sub|dub)\/mkissa-(\d+)\/?$/);
+    m = path.match(/^\/watch\/anihq\/(\d+)\/(sub|dub)\/anihq-(\d+(?:\.\d+)?)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
       return cachedWatch(
-        `watch:mkissa:${id}:${audio}:${ep}`,
-        () => mkissaHandler.fetch(request)
+        `watch:anihq:${id}:${audio}:${ep}`,
+        () => anihqHandler.fetch(request)
       );
-    }
-
-    if (path.match(/^\/captcha\/mkissa\/?$/)) {
-      return mkissaHandler.fetch(request);
     }
 
     m = path.match(/^\/watch\/reanime\/(\d+)\/(sub|dub)\/reanime-(\d+)\/?$/);
@@ -203,12 +199,12 @@ export default {
       );
     }
 
-    m = path.match(/^\/watch\/senshi\/(\d+)\/(sub|dub)\/senshi-(\d+)\/?$/);
+    m = path.match(/^\/watch\/pahenime\/(\d+)\/(sub|dub)\/pahenime-(\d+(?:\.\d+)?)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
       return cachedWatch(
-        `watch:senshi:${id}:${audio}:${ep}`,
-        () => senshiHandler.fetch(request),
+        `watch:pahenime:${id}:${audio}:${ep}`,
+        () => pahenimeHandler.fetch(request),
         SIGNED_STREAM_WATCH_TTL
       );
     }
@@ -256,14 +252,14 @@ export default {
       name: `Anivexa API ${env?.API_VERSION ?? "unknown"}`,
       cache: _CACHE_ENABLED,
       providers: [
-        "mkissa",
+        "anihq",
         "reanime",
         "anikoto",
         "animegg",
         "animenosub",
         "anizone",
         "aniwaves",
-        "senshi",
+        "pahenime",
         "kaa",
         "animedunya",
         "animeonsen",
@@ -273,7 +269,7 @@ export default {
         "/map/:anilistId",
         "/episodes/:anilistId",
         "/episodes/:provider[/:provider...]/:anilistId?map=true|false",
-        "/watch/mkissa/:id/sub|dub/mkissa-:ep",
+        "/watch/anihq/:id/sub|dub/anihq-:ep",
         "/watch/reanime/:id/sub|dub/reanime-:ep",
         "/stream/reanime/:id/sub|dub/:ep",
         "/watch/anikoto/:id/sub|dub/anikoto-:ep",
@@ -281,7 +277,7 @@ export default {
         "/watch/animenosub/:id/sub|dub/animenosub-:ep",
         "/watch/anizone/:id/sub|dub/anizone-:ep",
         "/watch/aniwaves/:id/sub|dub/aniwaves-:ep",
-        "/watch/senshi/:id/sub|dub/senshi-:ep",
+        "/watch/pahenime/:id/sub|dub/pahenime-:ep",
         "/watch/kaa/:id/sub|dub/kaa-:ep",
         "/watch/animedunya/:id/sub|dub/animedunya-:ep",
         "/watch/animeonsen/:id/sub|dub/animeonsen-:ep",

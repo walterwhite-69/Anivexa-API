@@ -47,7 +47,7 @@ function extractAnilistIdFromCover(coverImage) {
 }
 __name(extractAnilistIdFromCover, "extractAnilistIdFromCover");
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match3:reanime:${anilistId}`;
+  const cacheKey = `np:match4:reanime:${anilistId}`;
   const cached = cacheGet(cacheKey);
   if (cacheIsFresh(cached)) return cached.data;
 

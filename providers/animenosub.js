@@ -1,53 +1,87 @@
 import { getMedia } from "../core/anilist.js";
 import { findVideoExtractor } from "../extractors/index.js";
 import {
+  attr,
   buildTitles,
   decodeEntities,
   episodeMeta,
   expectedCount,
-  fetchHtml,
   findTopSlugs,
   getPrequelOffset,
   json,
   selectSeries,
+  stripTags,
 } from "../core/new-provider-utils.js";
 import { get, set, isFresh, SHOW_IDENTITY_TTL } from "../core/smartcache.js";
+import { wreqFetch } from "../core/wreq.js";
 
 const BASE = "https://animenosub.to";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
-async function search(query) {
-  const res = await fetch(`${BASE}/wp-admin/admin-ajax.php`, {
-    method: "POST",
+async function fetchProviderHtml(url, referer = `${BASE}/`) {
+  const response = await wreqFetch(url, {
+    session: "animenosub",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "X-Requested-With": "XMLHttpRequest",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-      Origin: BASE,
-      Referer: `${BASE}/`,
+      "User-Agent": UA,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      Referer: referer,
     },
-    body: `action=ts_ac_do_search&ts_ac_query=${encodeURIComponent(query)}`,
   });
-  if (!res.ok) throw new Error(`animenosub search HTTP ${res.status}`);
-  const data = await res.json();
-  const results = [];
-  for (const item of data?.anime?.[0]?.all ?? []) {
-    const slug = item.post_link?.match(/\/anime\/([^/]+)\/?$/)?.[1];
-    if (!slug) continue;
-    results.push({ slug, text: item.post_title ?? slug.replace(/-/g, " ") });
+  const raw = await response.text();
+  if (!response.ok) {
+    const error = new Error(`animenosub HTTP ${response.status}: ${url}`);
+    error.status = response.status;
+    error.rawBody = raw.slice(0, 1200);
+    throw error;
   }
-  return results;
+  return raw;
+}
+
+async function search(query) {
+  const url = new URL("/", BASE);
+  url.searchParams.set("s", query);
+  const html = await fetchProviderHtml(url.href);
+  const results = [];
+  for (const match of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const attributes = match[1];
+    const href = attr(attributes, "href");
+    let page;
+    try {
+      page = new URL(decodeEntities(href), BASE);
+    } catch {
+      continue;
+    }
+    if (page.origin !== new URL(BASE).origin) continue;
+    const slug = page.pathname.match(/^\/anime\/([^/]+)\/?$/i)?.[1];
+    if (!slug) continue;
+    const text = decodeEntities(attr(attributes, "title")) || stripTags(match[2]) || slug.replace(/-/g, " ");
+    results.push({ slug, text });
+  }
+  return [...new Map(results.map((item) => [item.slug, item])).values()];
 }
 
 async function scrapeSeries(slug) {
-  const html = await fetchHtml(`${BASE}/anime/${slug}/`, { Referer: BASE });
+  const html = await fetchProviderHtml(`${BASE}/anime/${slug}/`);
   const isSlugDub = /-dub$/.test(slug) || /(?:^|[-\s])dub(?:$|[-\s])/i.test(slug);
   const episodes = [];
   const seen = new Set();
-  const listRe = /<li\b[^>]*data-index="\d+"[^>]*>[\s\S]*?<a\s+href="(https?:\/\/animenosub\.to\/[^"]+)"[\s\S]*?<div\s+class="epl-num">([^<]+)<\/div>/gi;
-  for (const m of html.matchAll(listRe)) {
-    const epUrl = decodeEntities(m[1]);
-    const label = m[2].trim();
+  for (const match of html.matchAll(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi)) {
+    if (!/^\d+$/.test(attr(match[1], "data-index"))) continue;
+    const block = match[2];
+    const anchor = block.match(/<a\b([^>]*)>/i);
+    const href = anchor ? attr(anchor[1], "href") : "";
+    let epUrl;
+    try {
+      const parsed = new URL(decodeEntities(href), BASE);
+      if (parsed.origin !== new URL(BASE).origin) continue;
+      epUrl = parsed.href;
+    } catch {
+      continue;
+    }
+    const labelHtml = block.match(/<[^>]*class=["'][^"']*\bepl-num\b[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] ?? "";
+    const label = stripTags(labelHtml).trim();
+    if (!label) continue;
     let number;
     if (/^movie$/i.test(label)) {
       number = 1;
@@ -65,15 +99,17 @@ async function scrapeSeries(slug) {
 }
 
 async function scrapeEmbeds(epUrl) {
-  const html = await fetchHtml(epUrl, { Referer: `${BASE}/` });
+  const html = await fetchProviderHtml(epUrl, `${BASE}/`);
   const streams = [];
-  for (const m of html.matchAll(/<option\s+value="([A-Za-z0-9+/=]+)"\s+data-index="\d+"[^>]*>([^<]+)<\/option>/gi)) {
-    const b64 = m[1];
-    const serverName = m[2].trim();
+  for (const match of html.matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)) {
+    const attributes = match[1];
+    const b64 = attr(attributes, "value");
+    if (!b64 || !attr(attributes, "data-index")) continue;
+    const serverName = stripTags(match[2]).trim();
     if (!serverName || /select video server/i.test(serverName)) continue;
     let embedUrl = null;
     try {
-      const decoded = atob(b64);
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
       embedUrl = decoded.match(/src=["']([^"']+)["']/i)?.[1] ?? null;
     } catch { continue; }
     if (!embedUrl) continue;
@@ -88,8 +124,9 @@ async function scrapeEmbeds(epUrl) {
     });
   }
   if (streams.length === 0) {
-    for (const m of html.matchAll(/<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
-      const src = m[1];
+    for (const m of html.matchAll(/<iframe\b([^>]*)>/gi)) {
+      const src = attr(m[1], "src");
+      if (!src) continue;
       if (/vidmoly|vtbe|streamtape|dood|filemoon|upn\.one|bysesa/i.test(src)) {
         const embedOrigin = (() => { try { const u = new URL(src.startsWith("//") ? `https:${src}` : src); return `${u.protocol}//${u.host}/`; } catch { return epUrl; } })();
         streams.push({ url: src, type: "embed", server: "Direct", referer: embedOrigin, priority: 2, isActive: true });
@@ -101,7 +138,7 @@ async function scrapeEmbeds(epUrl) {
 }
 
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match2:animenosub:${anilistId}`;
+  const cacheKey = `np:match4:animenosub:${anilistId}`;
   const cached = get(cacheKey);
   if (isFresh(cached)) return cached.data;
 

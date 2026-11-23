@@ -8,6 +8,7 @@ import {
   expectedCount,
   json,
   titleIdentityScore,
+  titleMarkersConflict,
 } from "../core/new-provider-utils.js";
 import { get, set, isFresh, SHOW_IDENTITY_TTL } from "../core/smartcache.js";
 
@@ -153,6 +154,8 @@ function coverageScore(candidate, expected, status) {
 }
 
 function validateCandidate(candidate, media, titles, expected) {
+  const candidateTitles = [candidate.title, candidate.japanese, candidate.slug.replace(/-/g, " ")].filter(Boolean);
+  if (titleMarkersConflict(titles, candidateTitles, media?.format, { allowMissing: true })) return null;
   const titleScore = candidateTitleScore(titles, candidate);
   const expectedType = formatName(media?.format);
   const expectedYear = Number(media?.startDate?.year ?? media?.seasonYear ?? 0) || null;
@@ -176,7 +179,7 @@ function validateCandidate(candidate, media, titles, expected) {
 }
 
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match2:aniwaves:${anilistId}`;
+  const cacheKey = `np:match4:aniwaves:${anilistId}`;
   const cached = get(cacheKey);
   if (isFresh(cached)) return cached.data;
   const media = ctx.media ?? await getMedia(anilistId);

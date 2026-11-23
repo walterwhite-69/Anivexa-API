@@ -27,18 +27,18 @@ A single API that aggregates anime episode lists and streaming links from multip
 
 ## Providers
 
-All listed providers are active. Coverage and stream availability vary by title.
+Twelve providers are wired into the API. Coverage and stream availability vary by title and upstream site conditions.
 
 | Provider | Highlights |
 |---|---|
-| **MKissa** | Large catalog; captcha retries can slow requests |
+| **AniHQ** | Sub/dub catalogs; title and installment matching |
 | **Reanime** | Broad catalog |
 | **AniKoto** | Broad catalog |
 | **AnimeGG** | Fuzzy title matching |
 | **AnimeNoSub** | Sub and dub episodes |
 | **AniZone** | Sub, HLS, and subtitles |
 | **AniWaves** | HLS, MP4, and embed fallbacks |
-| **Senshi** | Episode mapping and streams |
+| **Pahenime** | AniList-ID-verified catalog; sub/dub player embeds |
 | **Kickassanime** | Fuzzy title matching |
 | **AnimeDunya** | MAL-backed; sub, HLS, and subtitles |
 | **AnimeOnsen** | AniList/MAL matching; sub, DASH, and subtitles |
@@ -57,7 +57,7 @@ Returns cross-platform ID mappings — MAL, TVDB, TMDB, Kitsu, AniDB, and more.
 GET /episodes/:anilistId
 GET /episodes/:provider[/:provider...]/:anilistId
 ```
-Returns episode lists in a single response with smart background refresh. Pass one or more provider names in the path to filter results — e.g. `/episodes/anizone/mkissa/16498` returns only those two. Omit providers to get all of them.
+Returns episode lists in a single response with smart background refresh. Pass one or more provider names in the path to filter results — e.g. `/episodes/anizone/anihq/16498` returns only those two. Omit providers to get all of them.
 
 ```
 GET /watch/:provider/:anilistId/sub|dub/:provider-:ep
@@ -211,7 +211,6 @@ Copy `.env.example` to `.env` and fill in the values.
 | `UPSTASH_REDIS_REST_TOKEN` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
 | `PORT` | `4000` | Local dev server port (`server.js` only — ignored on Vercel/serverless). Change it if `4000` is already in use, then hit `http://localhost:PORT`. |
-
 On Vercel (or Railway/Render), set these as regular project environment variables instead of committing `.env`.
 
 ---

@@ -54,14 +54,14 @@
       </div>
       <div class="nav-section">
         <div class="nav-label">Watch</div>
-        <a class="nav-item" href="#watch-mkissa"><span class="method">GET</span>MKissa</a>
+        <a class="nav-item" href="#watch-anihq"><span class="method">GET</span>AniHQ</a>
         <a class="nav-item" href="#watch-reanime"><span class="method">GET</span>Reanime</a>
         <a class="nav-item" href="#watch-anikoto"><span class="method">GET</span>Anikoto</a>
         <a class="nav-item" href="#watch-animegg"><span class="method">GET</span>AnimeGG</a>
         <a class="nav-item" href="#watch-animenosub"><span class="method">GET</span>AnimeNoSub</a>
         <a class="nav-item" href="#watch-anizone"><span class="method">GET</span>AniZone</a>
         <a class="nav-item" href="#watch-aniwaves"><span class="method">GET</span>AniWaves</a>
-        <a class="nav-item" href="#watch-senshi"><span class="method">GET</span>Senshi</a>
+        <a class="nav-item" href="#watch-pahenime"><span class="method">GET</span>Pahenime</a>
         <a class="nav-item" href="#watch-kaa"><span class="method">GET</span>KickAssAnime</a>
         <a class="nav-item" href="#watch-animedunya"><span class="method">GET</span>AnimeDunya</a>
         <a class="nav-item" href="#watch-animeonsen"><span class="method">GET</span>AnimeOnsen</a>
@@ -100,14 +100,14 @@
       <h2>Providers</h2>
       <p>Twelve providers are available. They resolve from AniList IDs; fuzzy-search catalogs validate titles and installment markers before selecting a match.</p>
       <div class="provider-grid">
-        <div class="provider-card" style="--i:0"><div class="provider-name">mkissa</div><div class="provider-meta">MKissa</div></div>
+        <div class="provider-card" style="--i:0"><div class="provider-name">anihq</div><div class="provider-meta">AniHQ</div></div>
         <div class="provider-card" style="--i:1"><div class="provider-name">reanime</div><div class="provider-meta">Reanime</div></div>
         <div class="provider-card" style="--i:2"><div class="provider-name">anikoto</div><div class="provider-meta">Anikoto</div></div>
         <div class="provider-card" style="--i:3"><div class="provider-name">animegg</div><div class="provider-meta">AnimeGG</div></div>
         <div class="provider-card" style="--i:7"><div class="provider-name">animenosub</div><div class="provider-meta">AnimeNoSub</div></div>
         <div class="provider-card" style="--i:8"><div class="provider-name">anizone</div><div class="provider-meta">AniZone</div></div>
         <div class="provider-card" style="--i:9"><div class="provider-name">aniwaves</div><div class="provider-meta">AniWaves</div></div>
-        <div class="provider-card" style="--i:11"><div class="provider-name">senshi</div><div class="provider-meta">Senshi</div></div>
+        <div class="provider-card" style="--i:11"><div class="provider-name">pahenime</div><div class="provider-meta">Pahenime</div></div>
         <div class="provider-card" style="--i:12"><div class="provider-name">kaa</div><div class="provider-meta">KickAssAnime</div></div>
         <div class="provider-card" style="--i:13"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
         <div class="provider-card" style="--i:14"><div class="provider-name">animeonsen</div><div class="provider-meta">AnimeOnsen</div></div>
@@ -132,7 +132,7 @@
         <pre><code><span class="p">{</span>
   <span class="n">"name"</span><span class="p">:</span> <span class="s">"Anivexa API {{API_VERSION}}"</span><span class="p">,</span>
   <span class="n">"cache"</span><span class="p">:</span> <span class="b">false</span><span class="p">,</span>
-  <span class="n">"providers"</span><span class="p">: [</span><span class="s">"mkissa"</span><span class="p">,</span> <span class="s">"reanime"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">],</span>
+  <span class="n">"providers"</span><span class="p">: [</span><span class="s">"anihq"</span><span class="p">,</span> <span class="s">"reanime"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">],</span>
   <span class="n">"routes"</span><span class="p">: [</span><span class="s">"/map/:anilistId"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">]</span>
 <span class="p">}</span></code></pre>
       </div>
@@ -198,7 +198,7 @@
       <span class="n">"dub"</span><span class="p">: [</span> <span class="s">"..."</span> <span class="p">]</span>
     <span class="p">}</span>
   <span class="p">},</span>
-  <span class="n">"senshi"</span><span class="p">: {</span> <span class="s">"..."</span> <span class="p">},</span>
+  <span class="n">"pahenime"</span><span class="p">: {</span> <span class="s">"..."</span> <span class="p">},</span>
 <span class="p">}</span></code></pre>
       </div>
     </section>
@@ -224,23 +224,23 @@
         </div>
         <div class="code-label">Examples</div>
         <pre><code><span class="k">GET</span> /episodes/reanime/16498
-<span class="k">GET</span> /episodes/reanime/senshi/16498
-<span class="k">GET</span> /episodes/reanime/senshi/16498<span class="p">?map=false</span></code></pre>
+<span class="k">GET</span> /episodes/reanime/pahenime/16498
+<span class="k">GET</span> /episodes/reanime/pahenime/16498<span class="p">?map=false</span></code></pre>
       </div>
     </section>
 
     <hr class="divider"/>
 
-    <section class="section" id="watch-mkissa">
-      <h2>MKissa</h2>
+    <section class="section" id="watch-anihq">
+      <h2>AniHQ</h2>
       <div class="endpoint">
         <div class="endpoint-head">
           <span class="method-pill get">GET</span>
-          <span class="endpoint-path">/watch/mkissa/<span class="param">:id</span>/<span class="param">sub|dub</span>/mkissa-<span class="param">:ep</span></span>
-          <a class="try-btn" href="/watch/mkissa/16498/sub/mkissa-1" target="_blank">Try it ↗</a>
+          <span class="endpoint-path">/watch/anihq/<span class="param">:id</span>/<span class="param">sub|dub</span>/anihq-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/anihq/16498/sub/anihq-1" target="_blank">Try it ↗</a>
         </div>
         <div class="endpoint-body">
-          <p class="endpoint-desc">Returns stream sources for the given MKissa episode. The episode ID comes directly from the <code>id</code> field in the episodes list response.</p>
+          <p class="endpoint-desc">Returns stream sources for the selected AniHQ episode. Use the episode <code>id</code> from the AniHQ entry in the episodes response.</p>
           <table class="params-table">
             <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
             <tbody>
@@ -411,16 +411,16 @@
       </div>
     </section>
 
-    <section class="section" id="watch-senshi">
-      <h2>Senshi</h2>
+    <section class="section" id="watch-pahenime">
+      <h2>Pahenime</h2>
       <div class="endpoint">
         <div class="endpoint-head">
           <span class="method-pill get">GET</span>
-          <span class="endpoint-path">/watch/senshi/<span class="param">:id</span>/<span class="param">sub|dub</span>/senshi-<span class="param">:ep</span></span>
-          <a class="try-btn" href="/watch/senshi/16498/sub/senshi-1" target="_blank">Try it ↗</a>
+          <span class="endpoint-path">/watch/pahenime/<span class="param">:id</span>/<span class="param">sub|dub</span>/pahenime-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/pahenime/16498/sub/pahenime-1" target="_blank">Try it ↗</a>
         </div>
         <div class="endpoint-body">
-          <p class="endpoint-desc">Returns stream sources from Senshi. Uses MAL ID directly — no slug resolution. Returns all available sources including HLS, alternate servers, FileMoon embeds, and download links when present.</p>
+          <p class="endpoint-desc">Returns the player embed and the selected HLS source when available. Pahenime wraps its manifest and fMP4 segments in image responses; the HLS entry includes the detected wrapper offsets and is not ordinary HLS for generic players.</p>
           <table class="params-table">
             <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
             <tbody>
@@ -430,23 +430,6 @@
             </tbody>
           </table>
         </div>
-        <div class="code-label">Response</div>
-        <pre><code><span class="p">{</span>
-  <span class="n">"anilistId"</span><span class="p">:</span>  <span class="b">16498</span><span class="p">,</span>
-  <span class="n">"malId"</span><span class="p">:</span>      <span class="b">16498</span><span class="p">,</span>
-  <span class="n">"episode"</span><span class="p">:</span>    <span class="b">1</span><span class="p">,</span>
-  <span class="n">"audio"</span><span class="p">:</span>      <span class="s">"sub"</span><span class="p">,</span>
-  <span class="n">"intro"</span><span class="p">:</span>      <span class="p">{</span> <span class="n">"start"</span><span class="p">:</span> <span class="b">123</span><span class="p">,</span> <span class="n">"end"</span><span class="p">:</span> <span class="b">215</span> <span class="p">},</span>
-  <span class="n">"outro"</span><span class="p">:</span>      <span class="p">{</span> <span class="n">"start"</span><span class="p">:</span> <span class="b">1435</span><span class="p">,</span> <span class="n">"end"</span><span class="p">:</span> <span class="b">1525</span> <span class="p">},</span>
-  <span class="n">"streams"</span><span class="p">: [</span>
-    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://ninstream.com/.../playlist.m3u8"</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">,</span>   <span class="n">"server"</span><span class="p">:</span> <span class="s">"Senshi"</span><span class="p">,</span>   <span class="n">"priority"</span><span class="p">:</span> <span class="b">5</span><span class="p">,</span> <span class="n">"isActive"</span><span class="p">:</span> <span class="b">true</span>  <span class="p">},</span>
-    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://streamnin.xyz/d/..."</span><span class="p">,</span>              <span class="n">"type"</span><span class="p">:</span> <span class="s">"embed"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"StreamNin"</span><span class="p">,</span> <span class="n">"priority"</span><span class="p">:</span> <span class="b">3</span><span class="p">,</span> <span class="n">"isActive"</span><span class="p">:</span> <span class="b">false</span> <span class="p">},</span>
-    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://bysesayeveum.com/e/..."</span><span class="p">,</span>             <span class="n">"type"</span><span class="p">:</span> <span class="s">"embed"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"FileMoon"</span><span class="p">,</span>  <span class="n">"priority"</span><span class="p">:</span> <span class="b">2</span><span class="p">,</span> <span class="n">"isActive"</span><span class="p">:</span> <span class="b">false</span> <span class="p">}</span>
-  <span class="p">],</span>
-  <span class="n">"downloads"</span><span class="p">: [</span>
-    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://bzzhr.to/..."</span><span class="p">,</span> <span class="n">"label"</span><span class="p">:</span> <span class="s">"Download"</span> <span class="p">}</span>
-  <span class="p">]</span>
-<span class="p">}</span></code></pre>
       </div>
     </section>
 

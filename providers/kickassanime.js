@@ -5,6 +5,7 @@ import {
   expectedCount,
   json,
   titleIdentityScore,
+  titleMarkersConflict,
 } from "../core/new-provider-utils.js";
 import { getMedia } from "../core/anilist.js";
 import {
@@ -96,6 +97,7 @@ function scoreCandidate(candidate, titles, seasonYear, anilistFormat) {
   const titleJp = candidate.title   || "";
   const kaaYear = Number(candidate.year);
   const kaaType = (candidate.type || "").toLowerCase();
+  if (titleMarkersConflict(titles, [titleEn, titleJp, candidate.slug], anilistFormat, { allowMissing: true })) return 0;
 
   const base = titleIdentityScore(titles, [titleEn, titleJp, candidate.slug]);
 
@@ -118,7 +120,7 @@ function scoreCandidate(candidate, titles, seasonYear, anilistFormat) {
 }
 
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match2:kaa:${anilistId}`;
+  const cacheKey = `np:match4:kaa:${anilistId}`;
   const cached   = cacheGet(cacheKey);
   if (isFresh(cached)) return cached.data;
 

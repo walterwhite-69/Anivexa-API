@@ -4,5 +4,4 @@ core/.cache/
 providers/2dhive.js
 extractors/babastream.js
 local-only-providers/
-providers/anihq.js
-extractors/voe.js
+providers/mkissa.js

@@ -4,6 +4,7 @@ import { canExtractMegaPlay, extractMegaPlay, extractMegaPlayDetails } from "./m
 import { canExtractNova, extractNova } from "./nova.js";
 import { canExtractVidplay, extractVidplay } from "./vidplay.js";
 import { canExtractVidmoly, extractVidmoly } from "./vidmoly.js";
+import { canExtractVoe, extractVoe } from "./voe.js";
 
 export { canExtractByse, extractByse } from "./byse.js";
 export { canExtractDataSv, extractDataSv } from "./datasv.js";
@@ -11,6 +12,7 @@ export { canExtractMegaPlay, extractMegaPlay, extractMegaPlayDetails } from "./m
 export { canExtractNova, extractNova } from "./nova.js";
 export { canExtractVidplay, extractVidplay } from "./vidplay.js";
 export { canExtractVidmoly, extractVidmoly } from "./vidmoly.js";
+export { canExtractVoe, extractVoe } from "./voe.js";
 export { extractFlixcloud } from "./flixcloud.js";
 
 const videoExtractors = [
@@ -19,6 +21,7 @@ const videoExtractors = [
   { name: "megaplay", matches: canExtractMegaPlay, extract: extractMegaPlay },
   { name: "vidplay", matches: canExtractVidplay, extract: extractVidplay },
   { name: "vidmoly", matches: canExtractVidmoly, extract: extractVidmoly },
+  { name: "voe", matches: canExtractVoe, extract: extractVoe },
   { name: "nova", matches: canExtractNova, extract: extractNova }
 ];
 

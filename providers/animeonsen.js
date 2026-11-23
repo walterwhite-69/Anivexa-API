@@ -6,6 +6,7 @@ import {
   expectedCount,
   json,
   titleIdentityScore,
+  titleMarkersConflict,
 } from "../core/new-provider-utils.js";
 import { get, set, isFresh, SHOW_IDENTITY_TTL } from "../core/smartcache.js";
 
@@ -199,6 +200,8 @@ function coverageScore(episodeCount, expected, status) {
 }
 
 function validateCandidate(candidate, media, titles, expected) {
+  const providerTitles = [candidate.candidate?.content_title_en, candidate.candidate?.content_title, candidate.candidate?.content_title_jp].filter(Boolean);
+  if (titleMarkersConflict(titles, providerTitles, media?.format, { allowMissing: true })) return null;
   const title = titleScore(titles, candidate.candidate);
   const expectedMovie = media?.format === "MOVIE";
   if (candidate.isMovie !== expectedMovie) return null;
@@ -226,7 +229,7 @@ function validateCandidate(candidate, media, titles, expected) {
 }
 
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:match2:animeonsen:${anilistId}`;
+  const cacheKey = `np:match4:animeonsen:${anilistId}`;
   const cached = get(cacheKey);
   if (isFresh(cached)) return cached.data;
   const media = ctx.media ?? await getMedia(anilistId);
