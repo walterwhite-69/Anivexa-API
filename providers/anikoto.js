@@ -1,6 +1,6 @@
 import { getMedia } from '../core/anilist.js';
 import { extractMegaPlayDetails } from "../extractors/megaplay.js";
-import { buildTitleSearchQueries, buildTitles, decodeEntities, titleIdentityScore } from "../core/new-provider-utils.js";
+import { buildTitleSearchQueries, buildTitles, decodeEntities, titleIdentityScore, titleMarkersConflict } from "../core/new-provider-utils.js";
 
 // AniKoto rotates domains (anikoto.cz -> anikototv.to -> anikototv.bz ...).
 // The old hosts keep serving as redirects, so resolve the live origin once and
@@ -227,7 +227,8 @@ async function findAnikotoShow(media, anizip) {
   const candidates = [...allCandidatesMap.values()].map((candidate) => {
     const titleScore = titleIdentityScore(titles, [candidate.name, candidate.jp, candidate.slug.replace(/-/g, " ")]);
     return { ...candidate, titleScore, legacyScore: scoreCandidate(candidate, media.title?.english, media.title?.romaji, media.synonyms || []) };
-  }).filter((candidate) => candidate.titleScore >= 0.28)
+  }).filter((candidate) => candidate.titleScore >= 0.28
+    && !titleMarkersConflict(titles, [candidate.name, candidate.jp, candidate.slug.replace(/-/g, " ")], media?.format, { allowMissing: true }))
     .sort((left, right) => right.titleScore - left.titleScore || right.legacyScore - left.legacyScore)
     .slice(0, 12);
 
@@ -239,10 +240,13 @@ async function findAnikotoShow(media, anizip) {
   }
 
   const expectedMal = Number(media.idMal) || null;
+  const expectedEpisodes = Number(media.episodes) > 0 ? Number(media.episodes) : null;
+  const episodeCoverage = (episodes) => expectedEpisodes
+    ? new Set(episodes.map((episode) => episode.number).filter((number) => number >= 1 && number <= expectedEpisodes)).size
+    : episodes.length;
   if (expectedMal) {
     const exact = inspected.filter((candidate) => candidate.episodes.some((episode) => episode.malId === expectedMal));
     if (exact.length) {
-      const expectedEpisodes = Number(media.episodes) > 0 ? Number(media.episodes) : null;
       const getMatchMetrics = (candidate) => {
         const rows = candidate.episodes.filter((episode) => episode.malId === expectedMal);
         const numbers = new Set(rows.map((episode) => episode.number));
@@ -266,6 +270,24 @@ async function findAnikotoShow(media, anizip) {
           || right.titleScore - left.titleScore;
       });
       const chosen = exact[0];
+      const chosenCoverage = getMatchMetrics(chosen).expectedRange;
+      const alternate = expectedEpisodes
+        ? inspected
+          .filter((candidate) => !candidate.episodes.some((episode) => episode.malId === expectedMal)
+            && candidate.titleScore >= 0.88
+            && episodeCoverage(candidate.episodes) >= Math.ceil(expectedEpisodes * 0.7))
+          .sort((left, right) => right.titleScore - left.titleScore
+            || episodeCoverage(right.episodes) - episodeCoverage(left.episodes))[0]
+        : null;
+      if (alternate
+        && episodeCoverage(alternate.episodes) > chosenCoverage + Math.ceil(expectedEpisodes * 0.25)
+        && alternate.titleScore > chosen.titleScore + 0.08) {
+        return {
+          ...alternate,
+          title: alternate.name,
+          malId: alternate.episodes.find((episode) => episode.malId)?.malId ?? expectedMal,
+        };
+      }
       const episodes = chosen.episodes.filter((episode) => episode.malId === expectedMal);
       const numbers = new Set(episodes.map((episode) => episode.number));
       for (const candidate of exact.slice(1)) {
@@ -294,14 +316,18 @@ async function findAnikotoShow(media, anizip) {
 
   const viable = inspected.filter((candidate) => {
     const hasProviderMal = candidate.episodes.some((episode) => episode.malId);
-    return candidate.titleScore >= 0.72 && (!expectedMal || !hasProviderMal);
+    const hasExpectedMal = expectedMal && candidate.episodes.some((episode) => episode.malId === expectedMal);
+    const strongCoverage = expectedEpisodes
+      && candidate.titleScore >= 0.88
+      && episodeCoverage(candidate.episodes) >= Math.ceil(expectedEpisodes * 0.7);
+    return candidate.titleScore >= 0.72 && (!expectedMal || hasExpectedMal || !hasProviderMal || strongCoverage);
   }).sort((left, right) => right.titleScore - left.titleScore || right.legacyScore - left.legacyScore);
   const chosen = viable[0];
   const runnerUp = viable[1];
   if (!chosen || runnerUp && chosen.titleScore - runnerUp.titleScore < 0.08) {
     throw new Error(`No confident Anikoto identity match for AniList ${media.id}`);
   }
-  return { ...chosen, title: chosen.name, malId: expectedMal };
+  return { ...chosen, title: chosen.name, malId: chosen.episodes.find((episode) => episode.malId)?.malId ?? expectedMal };
 }
 
 function mapTrack(t, source) {

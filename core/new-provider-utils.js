@@ -81,10 +81,48 @@ function titleText(value) {
     .trim();
 }
 
+function stripAudioVariant(value) {
+  return String(value ?? "").replace(/\s+(?:english\s+)?(?:subbed|dubbed|sub|dub)$/i, "").trim();
+}
+
 function titleWords(value) {
-  return new Set(titleText(value).split(/\s+/).filter((word) =>
-    word.length > 1 && !TITLE_STOP_WORDS.has(word) && !/^\d+(?:st|nd|rd|th)?$/.test(word)
+  const words = titleText(stripAudioVariant(value)).split(/\s+/);
+  const markers = new Set(["season", "part", "stage", "cour"]);
+  return new Set(words.filter((word, index) =>
+    word.length > 1
+    && !TITLE_STOP_WORDS.has(word)
+    && !/^\d+(?:st|nd|rd|th)?$/.test(word)
+    && !(markerNumber(word) && (markers.has(words[index - 1]) || markers.has(words[index + 1])))
   ));
+}
+
+const ORDINAL_VALUES = {
+  one: 1, first: 1, two: 2, second: 2, three: 3, third: 3, four: 4, fourth: 4,
+  five: 5, fifth: 5, six: 6, sixth: 6, seven: 7, seventh: 7, eight: 8, eighth: 8,
+  nine: 9, ninth: 9, ten: 10, tenth: 10,
+};
+
+function romanValue(value) {
+  const roman = String(value ?? "").toUpperCase();
+  if (!/^(?=.)M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/.test(roman)) return 0;
+  const values = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+  let total = 0;
+  for (let index = 0; index < roman.length; index++) {
+    const current = values[roman[index]];
+    const next = values[roman[index + 1]] ?? 0;
+    total += current < next ? -current : current;
+  }
+  return total;
+}
+
+function markerNumber(value) {
+  const raw = String(value ?? "").toLowerCase();
+  if (ORDINAL_VALUES[raw]) return String(ORDINAL_VALUES[raw]);
+  const token = raw.replace(/(?:st|nd|rd|th)$/i, "");
+  if (/^\d+$/.test(token)) return String(Number(token));
+  if (ORDINAL_VALUES[token]) return String(ORDINAL_VALUES[token]);
+  const roman = romanValue(token);
+  return roman > 0 && roman <= 20 ? String(roman) : null;
 }
 
 function markerValues(value) {
@@ -102,7 +140,25 @@ function markerValues(value) {
     for (const [word, number] of Object.entries(words)) {
       if (text.includes(`${marker}${word}`) || text.includes(`${word}${marker}`)) values.add(number);
     }
+    const token = "(\\d+(?:st|nd|rd|th)?|one|first|two|second|three|third|four|fourth|five|fifth|six|sixth|seven|seventh|eight|eighth|nine|ninth|ten|tenth|[ivxlcdm]+)";
+    for (const match of normalized.matchAll(new RegExp(`\\b${marker}\\s*${token}\\b`, "gi"))) {
+      const number = markerNumber(match[1]);
+      if (number) values.add(number);
+    }
+    for (const match of normalized.matchAll(new RegExp(`\\b${token}\\s*${marker}\\b`, "gi"))) {
+      const number = markerNumber(match[1]);
+      if (number) values.add(number);
+    }
     if (values.size) markers.set(marker, values);
+  }
+  for (const match of text.matchAll(/第(\d+|[一二三四五六七八九十]+)(期|部|クール)/g)) {
+    const numeral = match[1];
+    const japaneseNumber = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }[numeral];
+    const number = japaneseNumber ?? Number(numeral);
+    if (!Number.isInteger(number) || number < 1) continue;
+    const marker = match[2] === "期" ? "season" : match[2] === "部" ? "part" : "cour";
+    if (!markers.has(marker)) markers.set(marker, new Set());
+    markers.get(marker).add(String(number));
   }
   const finalMarkers = new Set();
   for (const match of text.matchAll(/final(season|chapters?|part|arc)/g)) {
@@ -114,9 +170,10 @@ function markerValues(value) {
   if (typeMarker) markers.set("format", new Set([typeMarker]));
   const ending = normalized.split(/\s+/).at(-1) || "";
   const number = ending.match(/^(\d{1,2})(?:st|nd|rd|th)?$/)?.[1]
-    ?? text.match(/([a-z])(\d{1,2})$/)?.[2];
-  const roman = { ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10" }[ending];
-  const endingValue = number || roman;
+    ?? normalized.match(/(?:^|\s)s(\d{1,2})$/i)?.[1];
+  const endingValue = number
+    ? String(Number(number))
+    : /^[ivxlcdm]+$/i.test(ending) ? markerNumber(ending) : null;
   const isAlreadyMarked = endingValue && ["season", "part", "stage", "cour"].some((marker) => markers.get(marker)?.has(endingValue));
   if (endingValue && !isAlreadyMarked) markers.set("numbered", new Set([endingValue]));
   for (const match of text.matchAll(/(?:movie|film)(\d+)/g)) {
@@ -126,7 +183,7 @@ function markerValues(value) {
   return markers;
 }
 
-export function titleMarkersConflict(targetTitles, candidateTitles, format) {
+export function titleMarkersConflict(targetTitles, candidateTitles, format, options = {}) {
   const collect = (titles) => {
     const markers = new Map();
     for (const title of titles ?? []) {
@@ -137,7 +194,7 @@ export function titleMarkersConflict(targetTitles, candidateTitles, format) {
     }
     return markers;
   };
-  const expected = collect(targetTitles);
+  const targets = (targetTitles ?? []).filter(Boolean);
   const found = collect(candidateTitles);
   const normalizedFormat = String(format ?? "").toLowerCase();
   const formatMarker = {
@@ -146,16 +203,39 @@ export function titleMarkersConflict(targetTitles, candidateTitles, format) {
     ona: "ona",
     special: "special",
   }[normalizedFormat];
-  if (formatMarker) expected.set("format", new Set([formatMarker]));
+  const conflictsForTarget = (expected) => {
+    if (formatMarker) expected.set("format", new Set([formatMarker]));
 
-  for (const marker of ["season", "part", "stage", "cour", "numbered", "final", "format"]) {
-    const expectedValues = expected.get(marker);
-    const candidateValues = found.get(marker);
-    if (expectedValues && !candidateValues && marker === "format") continue;
-    if (expectedValues && (!candidateValues || ![...expectedValues].some((value) => candidateValues.has(value)))) return true;
-    if (!expectedValues && candidateValues) return true;
-  }
-  return false;
+    const explicitMarkers = ["season", "part", "stage", "cour"];
+    const expectedExplicit = new Set(explicitMarkers.flatMap((marker) => [...(expected.get(marker) ?? [])]));
+    const candidateExplicit = new Set(explicitMarkers.flatMap((marker) => [...(found.get(marker) ?? [])]));
+    const expectedPartCour = new Set([...(expected.get("part") ?? []), ...(expected.get("cour") ?? [])]);
+    const candidatePartCour = new Set([...(found.get("part") ?? []), ...(found.get("cour") ?? [])]);
+    const partCourMatch = [...expectedPartCour].some((value) => candidatePartCour.has(value));
+    const expectedNumbered = expected.get("numbered");
+    const candidateNumbered = found.get("numbered");
+    const candidateNumberMatchesExpected = candidateNumbered && [...candidateNumbered].some((value) => expectedExplicit.has(value));
+    const expectedNumberMatchesCandidate = expectedNumbered && [...expectedNumbered].some((value) => candidateExplicit.has(value));
+
+    for (const marker of ["season", "part", "stage", "cour", "numbered", "final", "format"]) {
+      const expectedValues = expected.get(marker);
+      const candidateValues = found.get(marker)
+        ?? ((marker === "part" || marker === "cour") ? found.get(marker === "part" ? "cour" : "part") : undefined);
+      if ((marker === "part" || marker === "cour") && partCourMatch) continue;
+      if (explicitMarkers.includes(marker) && !candidateValues && expectedValues && candidateNumbered
+        && [...expectedValues].some((value) => candidateNumbered.has(value))) continue;
+      if (explicitMarkers.includes(marker) && !expectedValues && candidateValues && expectedNumbered
+        && [...candidateValues].some((value) => expectedNumbered.has(value))) continue;
+      if (marker === "numbered" && !expectedValues && candidateValues && candidateNumberMatchesExpected) continue;
+      if (marker === "numbered" && expectedValues && !candidateValues && expectedNumberMatchesCandidate) continue;
+      if (expectedValues && !candidateValues && marker === "format") continue;
+      if (expectedValues && candidateValues && ![...expectedValues].some((value) => candidateValues.has(value))) return true;
+      if (expectedValues && !candidateValues && !options.allowMissing && marker !== "format") return true;
+      if (!expectedValues && candidateValues) return true;
+    }
+    return false;
+  };
+  return targets.length > 0 && targets.every((title) => conflictsForTarget(collect([title])));
 }
 
 function unicodeDice(a, b) {
@@ -183,15 +263,9 @@ function unicodeDice(a, b) {
 export function titleIdentityScore(titles, candidates) {
   const targetTitles = (titles ?? []).filter(Boolean);
   const candidateTitles = (candidates ?? []).filter(Boolean);
-  const targetMarkers = new Map();
-  for (const title of targetTitles.slice(0, 3)) {
-    for (const [marker, values] of markerValues(title)) {
-      if (!targetMarkers.has(marker)) targetMarkers.set(marker, new Set());
-      for (const value of values) targetMarkers.get(marker).add(value);
-    }
-  }
   let best = 0;
   for (const title of targetTitles) {
+    const targetMarkers = markerValues(title);
     const queryWords = titleWords(title);
     for (const candidate of candidateTitles) {
       const candidateWords = titleWords(candidate);
@@ -202,10 +276,20 @@ export function titleIdentityScore(titles, candidates) {
         if (lexical < 0.86) continue;
       }
       const candidateMarkers = markerValues(candidate);
+      const targetNumbered = targetMarkers.get("numbered");
+      const candidateNumbered = candidateMarkers.get("numbered");
+      const targetExplicit = new Set(["season", "part", "stage", "cour"].flatMap((item) => [...(targetMarkers.get(item) ?? [])]));
+      const candidateExplicit = new Set(["season", "part", "stage", "cour"].flatMap((item) => [...(candidateMarkers.get(item) ?? [])]));
+      const numberedMatchesCandidate = targetNumbered && [...targetNumbered].some((value) => candidateExplicit.has(value));
+      const numberedMatchesTarget = candidateNumbered && [...candidateNumbered].some((value) => targetExplicit.has(value));
       let markerConflict = false;
       let markerPenalty = 0;
       for (const [marker, queryValues] of targetMarkers) {
-        const candidateValues = candidateMarkers.get(marker);
+        const candidateValues = candidateMarkers.get(marker)
+          ?? ((marker === "part" || marker === "cour") ? candidateMarkers.get(marker === "part" ? "cour" : "part") : undefined);
+        if (["season", "part", "stage", "cour"].includes(marker) && !candidateValues
+          && candidateNumbered && [...queryValues].some((value) => candidateNumbered.has(value))) continue;
+        if (marker === "numbered" && !candidateValues && numberedMatchesCandidate) continue;
         if (candidateValues && ![...queryValues].some((value) => candidateValues.has(value))) {
           markerConflict = true;
           break;
@@ -216,6 +300,9 @@ export function titleIdentityScore(titles, candidates) {
       }
       if (markerConflict) continue;
       for (const marker of candidateMarkers.keys()) {
+        if (["season", "part", "stage", "cour"].includes(marker) && !targetMarkers.has(marker)
+          && targetNumbered && [...(candidateMarkers.get(marker) ?? [])].some((value) => targetNumbered.has(value))) continue;
+        if (marker === "numbered" && !targetMarkers.has(marker) && numberedMatchesTarget) continue;
         if (!targetMarkers.has(marker)) markerPenalty += ["season", "part", "stage", "cour"].includes(marker) ? 0.18 : 0.12;
       }
       markerPenalty = Math.min(0.48, markerPenalty);
@@ -236,20 +323,23 @@ export function titleIdentityScore(titles, candidates) {
 }
 
 export function titleScore(query, candidate, slug) {
-  const base = Math.max(diceCoeff(query, candidate), diceCoeff(query, slug.replace(/-/g, " ")));
-  const queryFirstNum = norm(query).match(/\d+/)?.[0] ?? "";
-  const slugFirstNum = slug.match(/\d+/)?.[0] ?? "";
+  const cleanQuery = stripAudioVariant(query);
+  const cleanCandidate = stripAudioVariant(candidate);
+  const cleanSlug = stripAudioVariant(slug.replace(/-/g, " "));
+  const base = Math.max(diceCoeff(cleanQuery, cleanCandidate), diceCoeff(cleanQuery, cleanSlug));
+  const queryFirstNum = norm(cleanQuery).match(/\d+/)?.[0] ?? "";
+  const slugFirstNum = norm(cleanSlug).match(/\d+/)?.[0] ?? "";
   if (queryFirstNum && slugFirstNum && queryFirstNum !== slugFirstNum) return base * 0.65;
   if (queryFirstNum && !slugFirstNum) return base * 0.65;
   if (!queryFirstNum && slugFirstNum) {
     const n = parseInt(slugFirstNum);
     if (n > 1 && n < 1900) return base * (1 - 0.06 * (n - 1));
   }
-  const isMovieQuery = /\b(movie|film|the movie)\b/i.test(query);
-  const isMovieMatch = /\b(movie|film)\b/i.test(candidate) || /movie|film/.test(slug);
+  const isMovieQuery = /\b(movie|film|the movie)\b/i.test(cleanQuery);
+  const isMovieMatch = /\b(movie|film)\b/i.test(cleanCandidate) || /movie|film/.test(cleanSlug);
   if (isMovieQuery && !isMovieMatch) return base * 0.4;
-  const qLen = norm(query).length;
-  const sLen = norm(slug.replace(/-/g, " ")).length;
+  const qLen = norm(cleanQuery).length;
+  const sLen = norm(cleanSlug).length;
   return sLen > qLen * 1.6 + 4 ? base * 0.8 : base;
 }
 
@@ -275,7 +365,49 @@ export function buildTitleSearchQueries(titles, limit = 24) {
     if (query.length >= 3) queries.set(query.toLowerCase(), query);
   };
   const uniqueTitles = [...new Set(titles.filter(Boolean).map((title) => String(title).trim()).filter(Boolean))].slice(0, 12);
-  for (const title of uniqueTitles.slice(0, 8)) add(title);
+  for (const title of uniqueTitles) add(title);
+  for (const title of uniqueTitles.slice(0, 8)) {
+    const markerToken = "(\\d+(?:st|nd|rd|th)?|one|first|two|second|three|third|four|fourth|five|fifth|six|sixth|seven|seventh|eight|eighth|nine|ninth|ten|tenth|[ivxlcdm]+)";
+    const romanNumerals = { 1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII", 8: "VIII", 9: "IX", 10: "X" };
+    const numberWords = { 1: "First", 2: "Second", 3: "Third", 4: "Fourth", 5: "Fifth", 6: "Sixth", 7: "Seventh", 8: "Eighth", 9: "Ninth", 10: "Tenth" };
+    const ordinal = (number) => number === "1" ? "1st" : number === "2" ? "2nd" : number === "3" ? "3rd" : `${number}th`;
+    const seasonExpressions = [
+      new RegExp(`\\bseason\\s*${markerToken}\\b`, "gi"),
+      new RegExp(`\\b${markerToken}\\s+season\\b`, "gi"),
+    ];
+    for (const expression of seasonExpressions) {
+      for (const match of title.matchAll(expression)) {
+        const token = match[1];
+        const number = markerNumber(token);
+        if (!number) continue;
+        const base = title.replace(match[0], " ").replace(/\s+/g, " ").trim();
+        if (!base) continue;
+        add(`${base} Season ${number}`);
+        add(`${base} ${ordinal(number)} Season`);
+        if (numberWords[number]) {
+          add(`${base} ${numberWords[number]} Season`);
+          add(`${base} Season ${numberWords[number]}`);
+        }
+        if (romanNumerals[number]) add(`${base} Season ${romanNumerals[number]}`);
+      }
+    }
+    const partExpression = new RegExp(`\\bpart\\s*${markerToken}\\b`, "gi");
+    for (const match of title.matchAll(partExpression)) {
+      const number = markerNumber(match[1]);
+      if (!number) continue;
+      const base = title.replace(match[0], " ").replace(/\s+/g, " ").trim();
+      if (!base) continue;
+      add(`${base} Part ${number}`);
+      add(`${base} ${ordinal(number)} Part`);
+      if (numberWords[number]) {
+        add(`${base} ${numberWords[number]} Part`);
+        add(`${base} ${numberWords[number]} Cour`);
+      }
+      add(`${base} ${ordinal(number)} Cour`);
+      add(`${base} Cour ${number}`);
+      if (romanNumerals[number]) add(`${base} Part ${romanNumerals[number]}`);
+    }
+  }
   for (const title of uniqueTitles.slice(0, 4)) {
     add(String(title).replace(/[^\p{L}\p{N}]+/gu, " "));
     for (const query of buildSearchQueries(String(title))) add(query);
@@ -296,18 +428,44 @@ export function buildTitleSearchQueries(titles, limit = 24) {
 export async function findTopSlugs(titles, searchFn, n = 6) {
   const allCandidates = new Map();
   const searchQueries = buildTitleSearchQueries(titles, 20);
-  await Promise.all(searchQueries.map(async (q) => {
-    try {
-      const results = await searchFn(q);
-      for (const r of results) if (!allCandidates.has(r.slug)) allCandidates.set(r.slug, r.text);
-    } catch {}
-  }));
+  for (let index = 0; index < searchQueries.length; index += 4) {
+    const batches = await Promise.all(searchQueries.slice(index, index + 4).map(async (query) => {
+      try { return await searchFn(query); } catch { return []; }
+    }));
+    for (const results of batches) {
+      for (const result of results ?? []) {
+        if (!result?.slug) continue;
+        const slug = String(result.slug);
+        const current = allCandidates.get(slug);
+        if (!current || String(result.text ?? "").length > String(current.text ?? "").length) {
+          allCandidates.set(slug, { text: String(result.text ?? ""), result });
+        }
+      }
+    }
+  }
   const scored = [];
-  for (const [slug, text] of allCandidates) {
+  for (const [slug, candidate] of allCandidates) {
+    const text = candidate.text;
+    const candidateTitles = [text, slug.replace(/-/g, " ")];
+    if (titleMarkersConflict(titles, candidateTitles, undefined, { allowMissing: true })) continue;
     let best = 0;
     for (const title of titles) best = Math.max(best, titleScore(title, text, slug));
-    const identity = titleIdentityScore(titles, [text, slug.replace(/-/g, " ")]);
-    if (identity >= 0.6 && best >= 0.5) scored.push({ slug, title: text, score: best * 0.65 + identity * 0.35 });
+    const identity = titleIdentityScore(titles, candidateTitles);
+    const expectedMarkers = new Set(["season", "part", "stage", "cour"].flatMap((marker) =>
+      titles.flatMap((title) => [...(markerValues(title).get(marker) ?? [])])
+    ));
+    const candidateMarkers = new Set(["season", "part", "stage", "cour"].flatMap((marker) =>
+      candidateTitles.flatMap((title) => [...(markerValues(title).get(marker) ?? [])])
+    ));
+    const markerEvidence = !expectedMarkers.size || [...expectedMarkers].some((value) => candidateMarkers.has(value));
+    if (identity >= 0.6 && best >= 0.5) scored.push({
+      ...candidate.result,
+      slug,
+      title: text,
+      identity,
+      markerMissing: !markerEvidence,
+      score: best * 0.65 + identity * 0.35,
+    });
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, n);
 }
@@ -388,18 +546,23 @@ export function selectSeries(candidates, scrapeSeries, expected, status, offset,
     const offsetHits = expected && offset
       ? episodes.filter((e) => e.number > offset && e.number <= offset + expected).length
       : 0;
-    const mode = offsetHits > localHits ? "offset" : "local";
+    const mode = offsetHits > localHits || (offsetHits > 0 && offsetHits === localHits && candidate.markerMissing) ? "offset" : "local";
+    const offsetCoverage = Boolean(expected && offset && offsetHits >= Math.ceil(expected * 0.8));
+    const airedThrough = Number(options.expectedAired) || 0;
+    const currentCoverage = status !== "FINISHED" && airedThrough > 0 && max >= airedThrough;
+    const strongTitle = Number(candidate.identity ?? candidate.score) >= 0.9;
+    const ambiguousMarkerless = candidate.markerMissing && !strongTitle && !offsetCoverage && !currentCoverage;
     const hits = Math.max(localHits, offsetHits);
     let countScore = 1;
     if (expected && expected >= 6) {
       const needed = status === "FINISHED" ? Math.ceil(expected * 0.9) : 1;
       countScore = hits >= needed ? 1 : hits / needed;
     }
-    return { ...candidate, episodes, max, mode, score: candidate.score * 0.7 + countScore * 0.3 };
+    return { ...candidate, episodes, max, mode, ambiguousMarkerless, score: candidate.score * 0.7 + countScore * 0.3 };
   })).then((results) => {
     const minScore = options.minScore ?? 0.65;
     const viable = results
-      .filter((r) => r.episodes.length && r.score >= minScore)
+      .filter((r) => r.episodes.length && !r.ambiguousMarkerless && r.score >= minScore)
       .sort((a, b) => b.score - a.score);
     if (!viable.length) return null;
     return viable[0];
