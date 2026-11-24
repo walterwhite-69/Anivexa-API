@@ -46,6 +46,54 @@ Twelve providers are wired into the API. Coverage and stream availability vary b
 
 ---
 
+## Local provider and extractor tests
+
+The repository includes deterministic fixtures and a live integration test that runs against the provider and extractor code in your local checkout. The live test needs an internet connection, but it does not require a running API server or additional credentials.
+
+```bash
+npm test
+npm run test:providers
+```
+
+The live test checks the provider registry, episode catalogs, a selected watch route per provider with a matching episode, registered embed extractors, and returned HLS, DASH, or media sources. It validates manifests or a bounded media response and reports whether a returned FlixCloud playlist key decrypts its manifest. It uses AniList ID `16498` by default; pass another title or restrict the run to selected providers:
+
+```bash
+npm run test:providers -- --anime-id 21
+npm run test:providers -- --anime-id 21 --provider reanime,anihq
+```
+
+The report separates provider errors from titles with no matching episodes. A provider with no match is skipped for that title, so choose an AniList ID that exercises the sources you want to inspect. Authenticated stream URLs are reported as protected because the test does not forward authorization or cookie headers. Upstream availability can vary by network and time; a live result reflects the current run.
+
+| Provider | API route name |
+|---|---|
+| AniHQ | `anihq` |
+| Reanime | `reanime` |
+| AniKoto | `anikoto` |
+| AnimeGG | `animegg` |
+| AnimeNoSub | `animenosub` |
+| AniZone | `anizone` |
+| AniWaves | `aniwaves` |
+| Pahenime | `pahenime` |
+| Kickassanime | `kaa` |
+| AnimeDunya | `animedunya` |
+| AnimeOnsen | `animeonsen` |
+| Ani.pm | `anipm` |
+
+The shared extractor inventory and deterministic fixture coverage are:
+
+| Extractor | Coverage |
+|---|---|
+| Byse | Challenge flow and AES-GCM playback payload |
+| DataSV | Embed URL matcher |
+| FlixCloud | WASM-derived playlist key and AES-CBC stream payload |
+| MegaPlay | Embed matcher and AES-CBC source payload |
+| Nova | AES-128-CBC source payload |
+| Vidmoly | Embed URL matcher |
+| Vidplay | Embed URL matcher |
+| VOE | Obfuscated source payload |
+
+---
+
 ## Routes
 
 ```
