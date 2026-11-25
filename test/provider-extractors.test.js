@@ -103,18 +103,24 @@ function makeFlixWasm() {
   return { wasm: Uint8Array.from([0, 97, 115, 109, 1, 0, 0, 0, ...data, ...code]), segment };
 }
 
-test("the API provider list matches the provider modules", async () => {
+test("the API provider list, modules, docs, and live cases match", async () => {
   const { default: worker } = await import("../index.js");
   const response = await worker.fetch(new Request("https://anivexa.local/"), { API_VERSION: "2.3" });
   const registry = await response.json();
   const providerFiles = readdirSync(new URL("../providers/", import.meta.url)).filter((file) => file.endsWith(".js"));
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const providerCases = JSON.parse(readFileSync(new URL("../scripts/provider-cases.json", import.meta.url), "utf8"));
   const documentedNames = [...readme.matchAll(/^\| .+ \| `([a-z]+)` \|$/gm)].map((match) => match[1]);
 
   assert.deepEqual(registry.providers, EXPECTED_PROVIDERS);
   assert.deepEqual(Object.keys(PROVIDER_FILES), EXPECTED_PROVIDERS);
   assert.deepEqual([...providerFiles].sort(), Object.values(PROVIDER_FILES).sort());
   assert.deepEqual(documentedNames, EXPECTED_PROVIDERS);
+  assert.deepEqual(Object.keys(providerCases), EXPECTED_PROVIDERS);
+  for (const provider of EXPECTED_PROVIDERS) {
+    assert.match(providerCases[provider].anilistId, /^\d+$/);
+    assert.ok(providerCases[provider].title);
+  }
 
   const extractorFiles = readdirSync(new URL("../extractors/", import.meta.url))
     .filter((file) => file.endsWith(".js") && file !== "index.js");

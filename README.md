@@ -48,21 +48,24 @@ Twelve providers are wired into the API. Coverage and stream availability vary b
 
 ## Local provider and extractor tests
 
-The repository includes deterministic fixtures and a live integration test that runs against the provider and extractor code in your local checkout. The live test needs an internet connection, but it does not require a running API server or additional credentials.
+The repository includes deterministic fixtures and a live integration test that calls your running local API over HTTP. Start the API in one terminal and run the tests from a second terminal. Live cases are listed per provider in [`scripts/provider-cases.json`](scripts/provider-cases.json); override them with an AniList ID when you want to compare providers against the same title.
 
 ```bash
 npm test
+npm start
+# In another terminal:
 npm run test:providers
 ```
 
-The live test checks the provider registry, episode catalogs, a selected watch route per provider with a matching episode, registered embed extractors, and returned HLS, DASH, or media sources. It validates manifests or a bounded media response and reports whether a returned FlixCloud playlist key decrypts its manifest. It uses AniList ID `16498` by default; pass another title or restrict the run to selected providers:
+The live test checks provider episode catalogs, a selected watch route per provider, registered embed extractors, and returned HLS, DASH, or media sources. It reports the watch API status separately from playback verification, validates manifests or a bounded media response, and reports whether a returned FlixCloud playlist key decrypts its manifest. It uses the configured AniList ID for each provider by default; pass another title, select providers, or change the API origin:
 
 ```bash
-npm run test:providers -- --anime-id 21
-npm run test:providers -- --anime-id 21 --provider reanime,anihq
+npm run test:providers -- --anime-id 113415
+npm run test:providers -- --anime-id 113415 --provider reanime,anihq
+npm run test:providers -- --origin http://localhost:4000
 ```
 
-The report separates provider errors from titles with no matching episodes. A provider with no match is skipped for that title, so choose an AniList ID that exercises the sources you want to inspect. Authenticated stream URLs are reported as protected because the test does not forward authorization or cookie headers. Upstream availability can vary by network and time; a live result reflects the current run.
+The report separates provider errors from titles with no matching episodes. A provider with no match is skipped for that title. Authenticated stream URLs are reported as protected because the test does not forward authorization or cookie headers. Upstream availability can vary by network and time, so the configured IDs are reproducible test inputs rather than guarantees of current playback.
 
 | Provider | API route name |
 |---|---|

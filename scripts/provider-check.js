@@ -1,14 +1,16 @@
 import { lookup } from "node:dns/promises";
+import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { findVideoExtractor } from "../extractors/index.js";
 
-const API_ORIGIN = "https://anivexa.local";
-const DEFAULT_ANILIST_ID = "16498";
+const DEFAULT_API_ORIGIN = process.env.ANIVEXA_API_ORIGIN ?? "http://localhost:4000";
+const PROVIDER_CASES = JSON.parse(readFileSync(new URL("./provider-cases.json", import.meta.url), "utf8"));
 const MAX_EXTRACTORS_PER_PROVIDER = 2;
-const MAX_STREAM_PROBES_PER_PROVIDER = 2;
+const MAX_STREAM_PROBES_PER_PROVIDER = 4;
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
+const API_REQUEST_TIMEOUT_MS = 90_000;
 const RUN_TIMEOUT_MS = 12 * 60_000;
 const IGNORED_KEYS = /subtitle|caption|thumbnail|storyboard|chapter|download|poster|cover|logo|skip|intro|outro|audio.?track/i;
 const URL_KEYS = new Set(["url", "file", "src", "stream_url", "streamurl", "hls", "dash"]);
@@ -16,25 +18,29 @@ const EMBED_KEYS = new Set(["embed", "embedurl", "embed_url"]);
 
 function usage() {
   return [
-    "Test providers and extractors using the local Anivexa API code.",
+    "Test providers and extractors using a running local Anivexa API instance.",
     "",
     "Usage:",
     "  npm run test:providers",
+    "  npm run test:providers -- --provider reanime",
     "  npm run test:providers -- --anime-id 16498",
     "  npm run test:providers -- --anime-id 16498 --provider reanime,anihq",
+    "  npm run test:providers -- --origin http://localhost:4000",
     "",
     "Options:",
-    "  --anime-id <id>       AniList ID to look up (default: 16498)",
+    "  --anime-id <id>       Override the configured sample ID for selected providers",
     "  --provider <names>    Comma-separated API provider names; repeatable",
+    "  --origin <url>        Running local API origin (default: http://localhost:4000)",
     "  --help                Show this help",
     "",
-    "The live test needs internet access. It checks provider catalogs, watch routes,",
-    "registered embed extractors, stream manifests, and returned FlixCloud playlist keys.",
+    "Start the API locally first. The live test needs internet access and checks provider",
+    "catalogs, watch routes, registered extractors, streams, and FlixCloud playlist keys.",
   ].join("\n");
 }
 
 function parseArguments(args) {
-  let anilistId = DEFAULT_ANILIST_ID;
+  let anilistId = null;
+  let apiOrigin = DEFAULT_API_ORIGIN;
   let gotPositionalId = false;
   const requestedProviders = [];
   let help = false;
@@ -61,6 +67,11 @@ function parseArguments(args) {
       requestedProviders.push(...names);
       continue;
     }
+    if (option === "--origin") {
+      apiOrigin = inlineValue ?? args[++index];
+      if (!apiOrigin) throw new Error("--origin requires a URL.");
+      continue;
+    }
     if (!arg.startsWith("-") && !gotPositionalId) {
       anilistId = arg;
       gotPositionalId = true;
@@ -69,15 +80,27 @@ function parseArguments(args) {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (!/^\d+$/.test(String(anilistId)) || !Number.isSafeInteger(Number(anilistId)) || Number(anilistId) < 1) {
+  if (anilistId !== null && (!/^\d+$/.test(String(anilistId)) || !Number.isSafeInteger(Number(anilistId)) || Number(anilistId) < 1)) {
     throw new Error("AniList ID must be a positive integer.");
   }
-  return { anilistId: String(anilistId), requestedProviders, help };
+  let origin;
+  try {
+    const parsed = new URL(apiOrigin);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+      throw new Error("invalid origin");
+    }
+    origin = parsed.origin;
+  } catch {
+    throw new Error("--origin must be an HTTP(S) origin such as http://localhost:4000.");
+  }
+  return { anilistId: anilistId === null ? null : String(anilistId), apiOrigin: origin, requestedProviders, help };
 }
 
 function safeFailureDetail(message, status) {
-  if (status) return `HTTP ${status}`;
   const value = String(message ?? "");
+  if (/stream source not found/i.test(value)) return "upstream play page returned no stream source";
+  if (/could not confidently match|match not found|no title match/i.test(value)) return "provider could not match this AniList ID";
+  if (status) return `HTTP ${status}`;
   const httpStatus = value.match(/\bHTTP\s+(\d{3})\b/i)?.[1];
   if (httpStatus) return `HTTP ${httpStatus}`;
   if (/timeout|timed out|abort/i.test(value)) return "request timed out";
@@ -221,6 +244,8 @@ function collectCandidates(value, { allowBareStrings = false } = {}) {
       referer: context.referer,
       headers: context.headers,
       playlistKey: context.playlistKey,
+      wrappedFormat: context.wrappedFormat,
+      wrapperOffsets: context.wrapperOffsets,
       server: context.server,
     });
   }
@@ -247,6 +272,8 @@ function collectCandidates(value, { allowBareStrings = false } = {}) {
       headers: item.headers && typeof item.headers === "object" ? item.headers : inherited.headers,
       playlistKey: typeof item.playlist_key === "string" ? item.playlist_key :
         typeof item.playlistKey === "string" ? item.playlistKey : inherited.playlistKey,
+      wrappedFormat: typeof item.wrappedFormat === "string" ? item.wrappedFormat : inherited.wrappedFormat,
+      wrapperOffsets: item.wrapperOffsets && typeof item.wrapperOffsets === "object" ? item.wrapperOffsets : inherited.wrapperOffsets,
     };
 
     for (const [childKey, child] of Object.entries(item)) {
@@ -325,23 +352,33 @@ async function verifyStream(candidate) {
   }
 
   const raw = await readBoundedBody(response);
-  const text = raw.toString("utf8").trim();
+  let manifestBody = raw;
   if (candidate.type === "dash") {
+    const text = raw.toString("utf8").trim();
     return /<MPD\b/i.test(text)
       ? { ok: true, detail: "DASH manifest is valid" }
       : { ok: false, detail: "response is not an MPD manifest" };
   }
 
+  if (candidate.wrappedFormat === "image-wrapped-hls") {
+    const offset = candidate.wrapperOffsets?.manifest;
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset >= raw.length) {
+      return { ok: false, detail: "image-wrapped HLS manifest offset is missing or invalid" };
+    }
+    manifestBody = raw.subarray(offset);
+  }
+
   if (candidate.playlistKey) {
     try {
-      const decoded = decodeFlixcloudManifest(raw, candidate.playlistKey);
+      const decoded = decodeFlixcloudManifest(manifestBody, candidate.playlistKey);
       return { ok: true, detail: "HLS manifest is valid", keyStatus: decoded.keyStatus };
     } catch (error) {
       return { ok: false, detail: safeFailureDetail(error.message), keyStatus: "playlist key failed" };
     }
   }
+  const text = manifestBody.toString("utf8").trim();
   return text.startsWith("#EXTM3U")
-    ? { ok: true, detail: "HLS manifest is valid", keyStatus: "not supplied" }
+    ? { ok: true, detail: candidate.wrappedFormat === "image-wrapped-hls" ? "image-wrapped HLS manifest is valid at its reported offset" : "HLS manifest is valid", keyStatus: candidate.wrappedFormat === "image-wrapped-hls" ? "image-wrapped offsets returned" : "not supplied" }
     : { ok: false, detail: "response is not an HLS manifest" };
 }
 
@@ -364,24 +401,45 @@ async function probeExtractor(candidate) {
   }
 }
 
-async function fetchJson(worker, path, environment) {
-  const response = await worker.fetch(
-    new Request(new URL(path, API_ORIGIN)),
-    environment,
-  );
+async function fetchJson(apiOrigin, path) {
+  const response = await fetch(new URL(path, apiOrigin), {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+  });
   let payload = null;
   try { payload = await response.json(); } catch {}
   return { response, payload };
 }
 
-async function testProvider(providerName, anilistId, catalogResult, worker, environment) {
+function failedProviderRow(providerName, anilistId, detail) {
+  return {
+    provider: providerName,
+    anilistId,
+    catalog: "request failed",
+    episodeCount: 0,
+    episode: "—",
+    apiWatch: "skipped",
+    watch: "skipped",
+    streams: 0,
+    extractors: [],
+    keyStatus: "—",
+    detail,
+    failed: true,
+    skipped: false,
+    partial: false,
+  };
+}
+
+async function testProvider(providerName, anilistId, catalogResult, apiOrigin) {
   const providerData = catalogResult[providerName];
   const episodeCount = countEpisodes(providerData);
   const row = {
     provider: providerName,
+    anilistId,
     catalog: "",
     episodeCount: episodeCount ?? 0,
     episode: "—",
+    apiWatch: "skipped",
     watch: "skipped",
     streams: 0,
     extractors: [],
@@ -430,15 +488,17 @@ async function testProvider(providerName, anilistId, catalogResult, worker, envi
   const watchPath = `/watch/${providerName}/${anilistId}/${selected.audio}/${providerName}-${encodeURIComponent(selected.number)}`;
   let watchPayload;
   try {
-    const { response, payload } = await fetchJson(worker, watchPath, environment);
+    const { response, payload } = await fetchJson(apiOrigin, watchPath);
     watchPayload = payload;
     if (!response.ok) {
+      row.apiWatch = `HTTP ${response.status}`;
       row.watch = "failed";
       row.detail = safeFailureDetail(payload?.error, response.status);
       row.failed = true;
       return row;
     }
   } catch (error) {
+    row.apiWatch = "request failed";
     row.watch = "failed";
     row.detail = safeFailureDetail(error.message);
     row.failed = true;
@@ -446,11 +506,20 @@ async function testProvider(providerName, anilistId, catalogResult, worker, envi
   }
 
   if (!watchPayload || typeof watchPayload !== "object" || Array.isArray(watchPayload) || watchPayload.error) {
+    row.apiWatch = "invalid response";
     row.watch = "failed";
     row.detail = safeFailureDetail(watchPayload?.error ?? "invalid watch response");
     row.failed = true;
     return row;
   }
+  if (!Array.isArray(watchPayload.streams) || watchPayload.streams.length === 0) {
+    row.apiWatch = "no streams";
+    row.watch = "failed";
+    row.detail = "watch route returned no stream entries";
+    row.failed = true;
+    return row;
+  }
+  row.apiWatch = "HTTP 200";
 
   const candidates = collectCandidates(watchPayload);
   const embedCandidates = candidates.filter((item) => item.isEmbed);
@@ -544,30 +613,31 @@ async function mapLimit(items, limit, callback) {
   return results;
 }
 
-function printReport(anilistId, rows, suppressedLogs) {
+function printReport(apiOrigin, rows, suppressedLogs) {
   const pad = (value, width) => String(value).slice(0, width).padEnd(width);
-  console.log(`Anivexa local provider/extractor test — AniList ${anilistId}`);
+  console.log(`Anivexa local provider/extractor test — API ${apiOrigin}`);
   console.log(`Providers tested: ${rows.length} | Provider log lines suppressed: ${suppressedLogs}`);
   console.log("");
-  console.log(`${pad("Provider", 14)} ${pad("Catalog", 18)} ${pad("Episodes", 9)} ${pad("Episode", 13)} ${pad("Watch", 14)} ${pad("Streams", 9)} ${pad("Extractors", 30)} Playlist key`);
-  console.log("-".repeat(122));
+  console.log(`${pad("Provider", 14)} ${pad("AniList ID", 11)} ${pad("Catalog", 18)} ${pad("Episodes", 9)} ${pad("Episode", 13)} ${pad("Watch API", 12)} ${pad("Playback", 16)} ${pad("Streams", 9)} ${pad("Extractors", 30)} Playlist key`);
+  console.log("-".repeat(152));
   for (const row of rows) {
     const extractors = row.extractors.length
       ? row.extractors.map((item) => `${item.name}:${item.ok ? "ok" : "FAIL"}`).join(",")
       : "—";
-    console.log(`${pad(row.provider, 14)} ${pad(row.catalog, 18)} ${pad(row.episodeCount, 9)} ${pad(row.episode, 13)} ${pad(row.watch, 14)} ${pad(row.streams, 9)} ${pad(extractors, 30)} ${row.keyStatus}`);
+    console.log(`${pad(row.provider, 14)} ${pad(row.anilistId, 11)} ${pad(row.catalog, 18)} ${pad(row.episodeCount, 9)} ${pad(row.episode, 13)} ${pad(row.apiWatch, 12)} ${pad(row.watch, 16)} ${pad(row.streams, 9)} ${pad(extractors, 30)} ${row.keyStatus}`);
     for (const extractor of row.extractors.filter((item) => !item.ok)) {
       console.log(`  EXTRACTOR FAIL (${extractor.name}): ${extractor.detail}`);
     }
     if (row.detail) console.log(`  ${row.failed ? "FAIL" : row.skipped ? "SKIP" : "INFO"}: ${row.detail}`);
   }
 
-  const passed = rows.filter((row) => row.watch === "passed").length;
+  const apiPassed = rows.filter((row) => row.apiWatch === "HTTP 200").length;
+  const playbackPassed = rows.filter((row) => row.watch === "passed").length;
   const failed = rows.filter((row) => row.failed).length;
   const skipped = rows.filter((row) => row.skipped).length;
   const partial = rows.filter((row) => row.partial).length;
   console.log("");
-  console.log(`Passed: ${passed} | Partial: ${partial} | Failed: ${failed} | No title match: ${skipped}`);
+  console.log(`Watch API passed: ${apiPassed} | Playback verified: ${playbackPassed} | Partial: ${partial} | Failed: ${failed} | No title match: ${skipped}`);
   if (skipped) console.log("A title match is not an uptime failure; choose another AniList ID to exercise more providers.");
   if (failed) console.log("One or more catalog, watch, stream, or extractor checks failed. Review the safe failure details above.");
 }
@@ -579,19 +649,10 @@ async function main() {
     return;
   }
 
-  process.env.CACHE_ENABLED = "false";
-  const { default: worker } = await import("../index.js");
-  const environment = { API_VERSION: "2.3" };
-  const registryResponse = await worker.fetch(new Request(`${API_ORIGIN}/`), environment);
-  const registry = await registryResponse.json();
-  if (!registryResponse.ok || !Array.isArray(registry.providers) || registry.providers.length === 0) {
-    throw new Error("Could not read the local API provider registry.");
-  }
-
   const selectedProviders = options.requestedProviders.length
     ? [...new Set(options.requestedProviders)]
-    : registry.providers;
-  const unknown = selectedProviders.filter((name) => !registry.providers.includes(name));
+    : Object.keys(PROVIDER_CASES);
+  const unknown = selectedProviders.filter((name) => !Object.hasOwn(PROVIDER_CASES, name));
   if (unknown.length) throw new Error(`Unknown provider API name(s): ${unknown.join(", ")}.`);
 
   const originalLog = console.log;
@@ -607,20 +668,29 @@ async function main() {
 
   let rows;
   try {
-    const catalogPath = `/episodes/${selectedProviders.map(encodeURIComponent).join("/")}/${options.anilistId}?map=false`;
-    const catalogResponse = await worker.fetch(new Request(new URL(catalogPath, API_ORIGIN)), environment);
-    const catalogResult = await catalogResponse.json();
-    if (!catalogResponse.ok || catalogResult.error) throw new Error("The local episodes route failed before provider checks could start.");
-    if (catalogResult._unknownProviders?.length) throw new Error("The API route rejected a registered provider name.");
-
-    rows = await mapLimit(selectedProviders, 2, (providerName) => testProvider(providerName, options.anilistId, catalogResult, worker, environment));
+    rows = await mapLimit(selectedProviders, 2, async (providerName) => {
+      const configuredCase = PROVIDER_CASES[providerName];
+      const configuredId = String(configuredCase?.anilistId ?? "");
+      const anilistId = options.anilistId ?? configuredId;
+      if (!/^\d+$/.test(anilistId) || Number(anilistId) < 1) {
+        return failedProviderRow(providerName, anilistId || "—", "provider case has no valid AniList ID");
+      }
+      const catalogPath = `/episodes/${encodeURIComponent(providerName)}/${anilistId}?map=false`;
+      try {
+        const { response, payload } = await fetchJson(options.apiOrigin, catalogPath);
+        if (!response.ok) return failedProviderRow(providerName, anilistId, `catalog HTTP ${response.status}`);
+        return testProvider(providerName, anilistId, payload, options.apiOrigin);
+      } catch (error) {
+        return failedProviderRow(providerName, anilistId, safeFailureDetail(error.message));
+      }
+    });
   } finally {
     console.log = originalLog;
     console.error = originalError;
     clearTimeout(deadline);
   }
 
-  printReport(options.anilistId, rows, suppressedLogs);
+  printReport(options.apiOrigin, rows, suppressedLogs);
   if (!rows.some((row) => row.catalog === "episodes found")) {
     console.error("No selected provider returned episodes. Try a different AniList ID.");
     process.exitCode = 1;
