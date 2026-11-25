@@ -46,6 +46,57 @@ Twelve providers are wired into the API. Coverage and stream availability vary b
 
 ---
 
+## Local provider and extractor tests
+
+The repository includes deterministic fixtures and a live integration test that calls your running local API over HTTP. Start the API in one terminal and run the tests from a second terminal. Live cases are listed per provider in [`scripts/provider-cases.json`](scripts/provider-cases.json); override them with an AniList ID when you want to compare providers against the same title.
+
+```bash
+npm test
+npm start
+# In another terminal:
+npm run test:providers
+```
+
+The live test checks provider episode catalogs, a selected watch route per provider, registered embed extractors, and returned HLS, DASH, or media sources. It reports the watch API status separately from playback verification, validates manifests or a bounded media response, and reports whether a returned FlixCloud playlist key decrypts its manifest. It uses the configured AniList ID for each provider by default; pass another title, select providers, or change the API origin:
+
+```bash
+npm run test:providers -- --anime-id 113415
+npm run test:providers -- --anime-id 113415 --provider reanime,anihq
+npm run test:providers -- --origin http://localhost:4000
+```
+
+The report separates provider errors from titles with no matching episodes. A provider with no match is skipped for that title. Authenticated stream URLs are reported as protected because the test does not forward authorization or cookie headers. Upstream availability can vary by network and time, so the configured IDs are reproducible test inputs rather than guarantees of current playback.
+
+| Provider | API route name |
+|---|---|
+| AniHQ | `anihq` |
+| Reanime | `reanime` |
+| AniKoto | `anikoto` |
+| AnimeGG | `animegg` |
+| AnimeNoSub | `animenosub` |
+| AniZone | `anizone` |
+| AniWaves | `aniwaves` |
+| Pahenime | `pahenime` |
+| Kickassanime | `kaa` |
+| AnimeDunya | `animedunya` |
+| AnimeOnsen | `animeonsen` |
+| Ani.pm | `anipm` |
+
+The shared extractor inventory and deterministic fixture coverage are:
+
+| Extractor | Coverage |
+|---|---|
+| Byse | Challenge flow and AES-GCM playback payload |
+| DataSV | Embed URL matcher |
+| FlixCloud | WASM-derived playlist key and AES-CBC stream payload |
+| MegaPlay | Embed matcher and AES-CBC source payload |
+| Nova | AES-128-CBC source payload |
+| Vidmoly | Embed URL matcher |
+| Vidplay | Embed URL matcher |
+| VOE | Obfuscated source payload |
+
+---
+
 ## Routes
 
 ```
