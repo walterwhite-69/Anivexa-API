@@ -9,6 +9,7 @@ import { extractMegaPlayDetails } from "../extractors/megaplay.js";
 import { extractNova } from "../extractors/nova.js";
 import { decodePayload } from "../extractors/voe.js";
 import { findVideoExtractor } from "../extractors/index.js";
+import { parseAnimePostPage } from "../providers/anihq.js";
 
 const EXPECTED_PROVIDERS = [
   "anihq", "reanime", "anikoto", "animegg", "animenosub", "anizone",
@@ -102,6 +103,24 @@ function makeFlixWasm() {
   const code = wasmSection(10, [2, 1, 0, ...leb(body.length), ...body]);
   return { wasm: Uint8Array.from([0, 97, 115, 109, 1, 0, 0, 0, ...data, ...code]), segment };
 }
+
+test("AniHQ resolves anime IDs and audio capabilities from public post pages", () => {
+  assert.deepEqual(
+    parseAnimePostPage(
+      { audio: "sub" },
+      '<body class="single-anime postid-10385"><span class="anime_attribute-sub">English Sub</span></body>',
+    ),
+    { id: "10385", hasSub: true, hasDub: false },
+  );
+  assert.deepEqual(
+    parseAnimePostPage(
+      { audio: "dub" },
+      '<body data-post-id="77"><span class="anime_attribute-dub">English Dub</span></body>',
+    ),
+    { id: "77", hasSub: false, hasDub: true },
+  );
+  assert.equal(parseAnimePostPage({ audio: "sub" }, '<body class="single-anime"></body>'), null);
+});
 
 test("the API provider list, modules, docs, and live cases match", async () => {
   const { default: worker } = await import("../index.js");

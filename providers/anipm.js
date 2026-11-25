@@ -3,7 +3,7 @@ import { buildTitleSearchQueries, buildTitles, episodeMeta, json } from "../core
 import { get, set, isFresh, SHOW_IDENTITY_TTL } from "../core/smartcache.js";
 import { wreqFetch } from "../core/wreq.js";
 
-const SITE = "https://ani.pm";
+const SITE = "https://anipm.pk";
 const EMBED = "https://embed.settlar.io";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 const BROWSER = process.env.ANIPM_WREQ_BROWSER || "chrome_149";

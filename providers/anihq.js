@@ -161,25 +161,47 @@ async function fetchAnimePost(candidate) {
     },
   });
   const raw = await response.text();
-  if (!response.ok) {
+  if (!response.ok && ![401, 403].includes(response.status)) {
     const error = new Error(`AniHQ anime lookup HTTP ${response.status}: ${candidate.url}`);
     error.status = response.status;
     error.rawBody = raw.slice(0, 1200);
     throw error;
   }
-  let posts;
-  try {
-    posts = JSON.parse(raw);
-  } catch {
-    throw new Error(`AniHQ anime lookup returned invalid JSON: ${candidate.url}`);
+
+  if (response.ok) {
+    let posts;
+    try {
+      posts = JSON.parse(raw);
+    } catch {}
+    const post = Array.isArray(posts) ? posts.find((item) => item?.slug === candidate.baseSlug) : null;
+    if (post?.id) {
+      const classes = new Set(Array.isArray(post.class_list) ? post.class_list : []);
+      return {
+        id: String(post.id),
+        hasSub: classes.has("anime_attribute-sub"),
+        hasDub: classes.has("anime_attribute-dub"),
+      };
+    }
   }
-  const post = Array.isArray(posts) ? posts.find((item) => item?.slug === candidate.baseSlug) : null;
-  if (!post?.id) return null;
-  const classes = new Set(Array.isArray(post.class_list) ? post.class_list : []);
+
+  const { html } = await fetchHtml(candidate.url);
+  return parseAnimePostPage(candidate, html);
+}
+
+export function parseAnimePostPage(candidate, html) {
+  const bodyAttributes = String(html).match(/<body\b([^>]*)>/i)?.[1] ?? "";
+  const bodyClasses = attr(bodyAttributes, "class") ?? "";
+  const postId = bodyClasses.match(/\bpostid-(\d+)\b/)?.[1] ??
+    String(html).match(/\bdata-post-id=["'](\d+)["']/i)?.[1];
+  if (!postId) return null;
+
+  const hasSubMarker = /anime_attribute-sub|English\s+Sub(?:bed)?/i.test(html);
+  const hasDubMarker = /anime_attribute-dub|English\s+Dub(?:bed)?/i.test(html);
+  const hasAudioMarkers = hasSubMarker || hasDubMarker;
   return {
-    id: String(post.id),
-    hasSub: classes.has("anime_attribute-sub"),
-    hasDub: classes.has("anime_attribute-dub"),
+    id: postId,
+    hasSub: hasAudioMarkers ? hasSubMarker : candidate.audio !== "dub",
+    hasDub: hasAudioMarkers ? hasDubMarker : candidate.audio !== "sub",
   };
 }
 
