@@ -14,6 +14,7 @@ import { getEpisodes as kaaEpisodes    } from "../providers/kickassanime.js";
 import { getEpisodes as animedunyaEpisodes } from "../providers/animedunya.js";
 import { getEpisodes as animeonsenEpisodes } from "../providers/animeonsen.js";
 import { getEpisodes as anipmEpisodes } from "../providers/anipm.js";
+import { getEpisodes as animeheavenEpisodes } from "../providers/animeheaven.js";
 const inflight  = new Map();
 const bgRunning = new Set();
 
@@ -86,6 +87,7 @@ const PROVIDER_ALIASES = {
   animedunya: "animedunya",
   animeonsen: "animeonsen",
   anipm: "anipm",
+  animeheaven: "animeheaven",
 };
 
 export function resolveProviders(rawNames) {
@@ -113,6 +115,7 @@ function providerFns(anilistId, status, ctx) {
     animedunya: () => withCache(`epv:animedunya:${anilistId}`, status, () => animedunyaEpisodes(anilistId, ctx)),
     animeonsen: () => withCache(`epv:match4:animeonsen:${anilistId}`, status, () => animeonsenEpisodes(anilistId, ctx)),
     anipm: () => withCache(`epv:match3:anipm:${anilistId}`, status, () => anipmEpisodes(anilistId, ctx)),
+    animeheaven: () => withCache(`epv:match1:animeheaven:${anilistId}`, status, () => animeheavenEpisodes(anilistId, ctx)),
   };
 }
 
@@ -135,7 +138,7 @@ export async function buildEpisodesWithCache(anilistId, media, anizip) {
   const status = media?.status ?? "RELEASING";
   const ctx = { media, anizip, maxPages: undefined };
 
-  const [anihq, reanime, anikoto, animegg, animenosub, anizone, aniwaves, pahenime, kaa, animedunya, animeonsen, anipm] = await Promise.all([
+  const [anihq, reanime, anikoto, animegg, animenosub, anizone, aniwaves, pahenime, kaa, animedunya, animeonsen, anipm, animeheaven] = await Promise.all([
     safe("anihq",      () => withCache(`epv:match4:anihq:${anilistId}`,      status, () => anihqEpisodes(anilistId, ctx))),
     safe("reanime",    () => withCache(`epv:match4:reanime:${anilistId}`,    status, () => reanimeEpisodes(anilistId, ctx))),
     safe("anikoto",    () => withCache(`epv:match4:anikoto:${anilistId}`,    status, () => anikotoEpisodes(anilistId, ctx))),
@@ -148,6 +151,7 @@ export async function buildEpisodesWithCache(anilistId, media, anizip) {
     safe("animedunya", () => withCache(`epv:animedunya:${anilistId}`, status, () => animedunyaEpisodes(anilistId, ctx))),
     safe("animeonsen", () => withCache(`epv:match4:animeonsen:${anilistId}`, status, () => animeonsenEpisodes(anilistId, ctx))),
     safe("anipm",      () => withCache(`epv:match3:anipm:${anilistId}`,      status, () => anipmEpisodes(anilistId, ctx))),
+    safe("animeheaven", () => withCache(`epv:match1:animeheaven:${anilistId}`, status, () => animeheavenEpisodes(anilistId, ctx))),
   ]);
 
   return {
@@ -163,5 +167,6 @@ export async function buildEpisodesWithCache(anilistId, media, anizip) {
     animedunya:  animedunya.ok  ? animedunya.data  : { error: animedunya.error,  stack: animedunya.stack },
     animeonsen:  animeonsen.ok  ? animeonsen.data  : { error: animeonsen.error,  stack: animeonsen.stack },
     anipm:       anipm.ok       ? anipm.data       : { error: anipm.error,       stack: anipm.stack },
+    animeheaven: animeheaven.ok ? animeheaven.data : { error: animeheaven.error, stack: animeheaven.stack },
   };
 }
