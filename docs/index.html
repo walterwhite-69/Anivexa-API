@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Anivexa API — Docs</title>
-  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 12 providers, AniList ID mapping, and guarded fuzzy matching."/>
+  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 13 providers, AniList ID mapping, and guarded fuzzy matching."/>
   <link rel="icon" type="image/svg+xml" href="logo.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -66,6 +66,7 @@
         <a class="nav-item" href="#watch-animedunya"><span class="method">GET</span>AnimeDunya</a>
         <a class="nav-item" href="#watch-animeonsen"><span class="method">GET</span>AnimeOnsen</a>
         <a class="nav-item" href="#watch-anipm"><span class="method">GET</span>Ani.pm</a>
+        <a class="nav-item" href="#watch-animeheaven"><span class="method">GET</span>AnimeHeaven</a>
       </div>
     </div>
   </nav>
@@ -77,7 +78,7 @@
     <section class="section section-hero" id="overview">
       <img src="logo.svg" alt="Anivexa" class="hero-logo"/>
       <h1>Anivexa API</h1>
-      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 12 providers using a single AniList ID, with title and installment checks for fuzzy-search catalogs.</p>
+      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 13 providers using a single AniList ID, with title and installment checks for fuzzy-search catalogs.</p>
       <div class="callout">
         <span class="callout-icon">💡</span>
         <span>All endpoints are read-only. No authentication required. All responses are JSON with CORS headers included.</span>
@@ -98,7 +99,7 @@
 
     <section class="section" id="providers-ref">
       <h2>Providers</h2>
-      <p>Twelve providers are available. They resolve from AniList IDs; fuzzy-search catalogs validate titles and installment markers before selecting a match.</p>
+      <p>Thirteen providers are available. They resolve from AniList IDs; fuzzy-search catalogs validate titles and installment markers before selecting a match.</p>
       <div class="provider-grid">
         <div class="provider-card" style="--i:0"><div class="provider-name">anihq</div><div class="provider-meta">AniHQ</div></div>
         <div class="provider-card" style="--i:1"><div class="provider-name">reanime</div><div class="provider-meta">Reanime</div></div>
@@ -112,6 +113,7 @@
         <div class="provider-card" style="--i:13"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
         <div class="provider-card" style="--i:14"><div class="provider-name">animeonsen</div><div class="provider-meta">AnimeOnsen</div></div>
         <div class="provider-card" style="--i:15"><div class="provider-name">anipm</div><div class="provider-meta">Ani.pm</div></div>
+        <div class="provider-card" style="--i:16"><div class="provider-name">animeheaven</div><div class="provider-meta">AnimeHeaven</div></div>
       </div>
     </section>
 
@@ -569,6 +571,29 @@
   <span class="n">"streams"</span><span class="p">:</span> <span class="p">[</span>
     <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://media.settlar.io/.../master.m3u8"</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"Ani.pm"</span><span class="p">,</span> <span class="n">"subtitleType"</span><span class="p">:</span> <span class="s">"softsub"</span> <span class="p">},</span>
     <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://media.settlar.io/.../master.m3u8"</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"Ani.pm"</span><span class="p">,</span> <span class="n">"subtitleType"</span><span class="p">:</span> <span class="s">"hardsub"</span> <span class="p">}</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+      </div>
+    </section>
+
+    <section class="section" id="watch-animeheaven">
+      <h2>AnimeHeaven</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/animeheaven/<span class="param">:id</span>/<span class="param">sub</span>/animeheaven-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/animeheaven/16498/sub/animeheaven-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Returns direct MP4 sources from AnimeHeaven. The catalog is sub-only, so <code>dub</code> requests return 404. Stream URLs are short-lived; send the returned <code>referer</code> when playing them.</p>
+        </div>
+        <div class="code-label">Response</div>
+        <pre><code><span class="p">{</span>
+  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">16498</span><span class="p">,</span>
+  <span class="n">"episode"</span><span class="p">:</span> <span class="b">1</span><span class="p">,</span>
+  <span class="n">"audio"</span><span class="p">:</span> <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"streams"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://.../video.mp4?..."</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"mp4"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"AnimeHeaven"</span><span class="p">,</span> <span class="n">"referer"</span><span class="p">:</span> <span class="s">"https://animeheaven.me/"</span> <span class="p">}</span>
   <span class="p">]</span>
 <span class="p">}</span></code></pre>
       </div>

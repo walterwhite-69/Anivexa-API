@@ -13,7 +13,7 @@ import { parseAnimePostPage } from "../providers/anihq.js";
 
 const EXPECTED_PROVIDERS = [
   "anihq", "reanime", "anikoto", "animegg", "animenosub", "anizone",
-  "aniwaves", "pahenime", "kaa", "animedunya", "animeonsen", "anipm",
+  "aniwaves", "pahenime", "kaa", "animedunya", "animeonsen", "anipm", "animeheaven",
 ];
 
 const PROVIDER_FILES = {
@@ -29,6 +29,7 @@ const PROVIDER_FILES = {
   animedunya: "animedunya.js",
   animeonsen: "animeonsen.js",
   anipm: "anipm.js",
+  animeheaven: "animeheaven.js",
 };
 
 const EXTRACTOR_FIXTURES = [

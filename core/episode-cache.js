@@ -43,6 +43,7 @@ function hasCurrentProviders(data) {
     Object.prototype.hasOwnProperty.call(data, "aniwaves") &&
     Object.prototype.hasOwnProperty.call(data, "animeonsen") &&
     Object.prototype.hasOwnProperty.call(data, "anipm") &&
+    Object.prototype.hasOwnProperty.call(data, "animeheaven") &&
     Object.prototype.hasOwnProperty.call(data, "pahenime") &&
     Object.prototype.hasOwnProperty.call(data, "anihq");
 }

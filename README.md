@@ -27,7 +27,7 @@ A single API that aggregates anime episode lists and streaming links from multip
 
 ## Providers
 
-Twelve providers are wired into the API. Coverage and stream availability vary by title and upstream site conditions.
+Thirteen providers are wired into the API. Coverage and stream availability vary by title and upstream site conditions.
 
 | Provider | Highlights |
 |---|---|
@@ -43,6 +43,7 @@ Twelve providers are wired into the API. Coverage and stream availability vary b
 | **AnimeDunya** | MAL-backed; sub, HLS, and subtitles |
 | **AnimeOnsen** | AniList/MAL matching; sub, DASH, and subtitles |
 | **Ani.pm** | Soft-sub and hard-sub variants |
+| **AnimeHeaven** | Sub episodes; direct MP4 streams |
 
 ---
 
@@ -81,6 +82,7 @@ The report separates provider errors from titles with no matching episodes. A pr
 | AnimeDunya | `animedunya` |
 | AnimeOnsen | `animeonsen` |
 | Ani.pm | `anipm` |
+| AnimeHeaven | `animeheaven` |
 
 The shared extractor inventory and deterministic fixture coverage are:
 
